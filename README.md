@@ -1,50 +1,81 @@
-
 # Relix
 
-Relix is a privacy-first personal knowledge system built on ACORDE. It lets you manage notes, research papers, links, and daily logs with full offline support and peer-to-peer sync.
+**Privacy-first personal knowledge management built on ACORDE.**
 
-Relix is designed for students, researchers, and builders who want full control over their knowledge base.
+> Your second brain. Without the cloud.
+
+![License](https://img.shields.io/badge/license-MIT-blue.svg)
+![Status](https://img.shields.io/badge/status-alpha-orange.svg)
 
 ## ✨ Features
 
-- Markdown-based notes
-- Backlinks and graph view
-- PDF storage and annotation
-- Full-text search
-- Tag-based organization
-- Encrypted local storage
-- Peer-to-peer sync
+- 📝 **Markdown Notes** — Write in markdown with live preview
+- 🔗 **Backlinks** — `[[Wikilink]]` syntax with bidirectional linking
+- 📊 **Graph View** — Visualize your knowledge connections
+- 📄 **PDF Storage** — Store and annotate documents
+- 🔍 **Full-text Search** — Find anything instantly
+- 🏷️ **Tags** — Hierarchical `#topic/subtopic` organization
+- 🔐 **Encrypted** — End-to-end encryption with ACORDE
+- 🔄 **P2P Sync** — Sync across devices without cloud servers
 
-## 🏗 Architecture
+## 🏗️ Architecture
 
-- Frontend: Next.js / Tauri
-- Backend: ACORDE REST API
-- Storage: ACORDE entries + blobs
+```
+apps/
+├── web/       # Next.js 14 (primary)
+├── desktop/   # Electron (coming soon)
+└── mobile/    # Expo (coming soon)
+
+packages/
+├── core/      # ACORDE client + services
+├── ui/        # Shared components
+└── storage/   # Local preferences
+```
 
 ## 🚀 Getting Started
 
 ### Prerequisites
-- ACORDE daemon running
-- Node.js 18+
+
+1. **ACORDE daemon** running on localhost:7331
+   ```bash
+   acorde serve --port 7331
+   ```
+
+2. **Node.js 18+**
 
 ### Setup
 
 ```bash
-git clone https://github.com/amaydixit11/relix
-cd relix
+# Install dependencies
 npm install
+
+# Start development server
 npm run dev
-````
+```
 
-## 🔐 Privacy
+Open [http://localhost:3000](http://localhost:3000)
 
-* No cloud storage
-* End-to-end encrypted
-* Data stays on your devices
+## 📦 Tech Stack
 
-## 📦 Roadmap
+| Layer | Technology |
+|-------|------------|
+| Web | Next.js 14 |
+| Desktop | Electron |
+| Mobile | Expo |
+| State | React Query |
+| Backend | ACORDE |
+| Monorepo | Turborepo |
 
-* Mobile client
-* Collaborative workspaces
-* Advanced graph analytics
-* Plugin system
+## 🗺️ Roadmap
+
+- [x] Core package (ACORDE client + services)
+- [x] Web app (notes CRUD)
+- [ ] Markdown editor (CodeMirror)
+- [ ] Graph visualization (D3)
+- [ ] PDF viewer
+- [ ] Desktop app (Electron)
+- [ ] Mobile app (Expo)
+
+## 📄 License
+
+MIT
