@@ -34,6 +34,7 @@ coverage/
 # Misc
 *.tsbuildinfo
 digest.txt
+.codex
 
 # ACORDE and Relix binaries/data
 /acorde
