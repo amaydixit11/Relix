@@ -13,11 +13,12 @@ export class FileService {
     name: string,
     tags: string[] = []
   ): Promise<File> {
-    // TODO: POST to /blobs endpoint when ACORDE adds it
-    // For now, store file info as entry content
+    // Upload content to blob store
+    const cid = await acorde.uploadBlob(file);
+
     const content: FileContent = {
       name,
-      cid: '', // Will be set after blob upload
+      cid,
       size: file.size,
       mime_type: file.type || 'application/octet-stream',
       annotations: [],
