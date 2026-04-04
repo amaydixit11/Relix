@@ -1,69 +1,213 @@
-import { View, Text, ScrollView, StyleSheet } from 'react-native';
-import { Stack, useLocalSearchParams } from 'expo-router';
-import { useQuery } from '@tanstack/react-query';
-
-const ACORDE_URL = 'http://localhost:7331';
+import { View, Text, ScrollView, StyleSheet, ActivityIndicator, TextInput, TouchableOpacity, Alert, KeyboardAvoidingView, Platform } from 'react-native';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { noteService } from '@relix/core';
+import { useState, useEffect } from 'react';
+import {
+  drainMutationQueue,
+  getQueueCount,
+  getCachedNote,
+  queueDeleteNote,
+  queueUpdateNote,
+  resolveQueuedNoteId,
+  setCachedNote,
+  type CachedNote,
+} from '../../src/offline';
 
 async function fetchNote(id: string) {
-  const res = await fetch(`${ACORDE_URL}/entries/${id}`);
-  if (!res.ok) throw new Error('Note not found');
-  return res.json();
+  const resolvedId = await resolveQueuedNoteId(id);
+  try {
+    await drainMutationQueue();
+    const note = await noteService.get(resolvedId);
+    await setCachedNote(note);
+    return note;
+  } catch (err) {
+    const cached = (await getCachedNote(id)) ?? (await getCachedNote(resolvedId));
+    if (cached) return cached;
+    throw err;
+  }
 }
 
 export default function NoteScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const router = useRouter();
+  const queryClient = useQueryClient();
 
-  const { data: note, isLoading, error } = useQuery({
+  const [isEditing, setIsEditing] = useState(false);
+  const [editTitle, setEditTitle] = useState('');
+  const [editBody, setEditBody] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [queueCount, setQueueCount] = useState(0);
+
+  const { data: note, isLoading, isError, refetch } = useQuery<CachedNote>({
     queryKey: ['note', id],
-    queryFn: () => fetchNote(id),
+    queryFn: () => fetchNote(id!),
     enabled: !!id,
+    staleTime: 1000 * 60 * 10,
   });
 
-  let content = { title: 'Loading...', body: '' };
-  if (note) {
+  useEffect(() => {
+    if (note) {
+      setEditTitle(note.content.title);
+      setEditBody(note.content.body);
+    }
+  }, [note]);
+
+  useEffect(() => {
+    const loadQueueCount = async () => {
+      setQueueCount(await getQueueCount());
+    };
+
+    void loadQueueCount();
+  }, [note]);
+
+  const handleSave = async () => {
+    if (!id) return;
+    setIsSaving(true);
     try {
-      content = JSON.parse(atob(note.Content));
-    } catch {}
+      await queueUpdateNote(id, { title: editTitle, body: editBody });
+      await drainMutationQueue();
+      setIsEditing(false);
+      queryClient.invalidateQueries({ queryKey: ['note', id] });
+      queryClient.invalidateQueries({ queryKey: ['notes'] });
+      setQueueCount(await getQueueCount());
+      await refetch();
+    } catch (err: any) {
+      Alert.alert('Update Failed', err.message || 'Unable to save note locally');
+    }
+    setIsSaving(false);
+  };
+
+  const handleDelete = async () => {
+    Alert.alert(
+      'Delete Note',
+      'Are you sure you want to delete this note?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Delete', 
+          style: 'destructive',
+          onPress: async () => {
+            if (!id) return;
+            try {
+              await queueDeleteNote(id);
+              await drainMutationQueue();
+              queryClient.invalidateQueries({ queryKey: ['notes'] });
+              router.back();
+            } catch (err: any) {
+              Alert.alert('Delete Failed', err.message || 'Unable to queue note deletion');
+            }
+          }
+        },
+      ]
+    );
+  };
+
+  if (isLoading) {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator size="large" color="#6366f1" />
+      </View>
+    );
+  }
+
+  const content = note?.content || { title: 'Untitled', body: '' };
+
+  if (isEditing) {
+    return (
+      <KeyboardAvoidingView 
+        style={styles.container} 
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={100}
+      >
+        <Stack.Screen 
+          options={{ 
+            title: 'Editing...',
+            headerRight: () => (
+              <TouchableOpacity onPress={handleSave} disabled={isSaving}>
+                <Text style={[styles.actionBtn, isSaving && { opacity: 0.5 }]}>
+                  {isSaving ? '...' : 'Done'}
+                </Text>
+              </TouchableOpacity>
+            ),
+          }} 
+        />
+        <ScrollView contentContainerStyle={styles.editContent}>
+          <TextInput
+            style={styles.editTitleInput}
+            value={editTitle}
+            onChangeText={setEditTitle}
+            placeholder="Title"
+            placeholderTextColor="#666"
+            autoFocus
+          />
+          <TextInput
+            style={styles.editBodyInput}
+            value={editBody}
+            onChangeText={setEditBody}
+            placeholder="Start writing..."
+            placeholderTextColor="#444"
+            multiline
+            textAlignVertical="top"
+          />
+        </ScrollView>
+      </KeyboardAvoidingView>
+    );
   }
 
   return (
     <View style={styles.container}>
       <Stack.Screen 
         options={{ 
-          title: content.title,
+          title: '',
+          headerRight: () => (
+            <View style={styles.headerActions}>
+              <TouchableOpacity onPress={handleDelete} style={styles.iconBtn}>
+                <Text style={styles.deleteBtnText}>Delete</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setIsEditing(true)}>
+                <Text style={styles.actionBtn}>Edit</Text>
+              </TouchableOpacity>
+            </View>
+          ),
           headerBackTitle: 'Back',
         }} 
       />
       
-      {isLoading ? (
-        <View style={styles.center}>
-          <Text style={styles.muted}>Loading...</Text>
-        </View>
-      ) : error ? (
-        <View style={styles.center}>
-          <Text style={styles.error}>Note not found</Text>
-        </View>
-      ) : (
-        <ScrollView contentContainerStyle={styles.content}>
-          <Text style={styles.title}>{content.title}</Text>
-          
-          {/* Tags */}
-          {note?.Tags && note.Tags.length > 0 && (
+      <ScrollView contentContainerStyle={styles.viewContent}>
+        {isError && (
+          <View style={styles.offlineBanner}>
+            <Text style={styles.offlineText}>Viewing offline version</Text>
+          </View>
+        )}
+
+        {note?.pending_sync || queueCount > 0 ? (
+          <View style={styles.pendingBanner}>
+            <Text style={styles.pendingText}>
+              {note?.pending_sync ? 'Changes queued for sync' : `${queueCount} queued changes pending sync`}
+            </Text>
+          </View>
+        ) : null}
+
+        <Text style={styles.title}>{content.title}</Text>
+        
+        <View style={styles.metaRow}>
+          <Text style={styles.date}>
+            {new Date((note?.updated_at || 0) * 1000).toLocaleDateString()}
+          </Text>
+          {note?.tags && note.tags.length > 0 && (
             <View style={styles.tags}>
-              {note.Tags
-                .filter((t: string) => !t.startsWith('backlink:') && !t.startsWith('outlink:'))
+              {note.tags
+                .filter((t: string) => !t.includes(':'))
                 .map((tag: string) => (
-                  <View key={tag} style={styles.tag}>
-                    <Text style={styles.tagText}>#{tag}</Text>
-                  </View>
+                  <Text key={tag} style={styles.tagText}>#{tag}</Text>
                 ))}
             </View>
           )}
-          
-          {/* Body */}
-          <Text style={styles.body}>{content.body}</Text>
-        </ScrollView>
-      )}
+        </View>
+        
+        <Text style={styles.body}>{content.body}</Text>
+      </ScrollView>
     </View>
   );
 }
@@ -73,45 +217,104 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#0a0a0a',
   },
-  content: {
+  viewContent: {
+    padding: 24,
+  },
+  editContent: {
     padding: 20,
+    flexGrow: 1,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+    marginRight: 16,
+  },
+  offlineBanner: {
+    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+    padding: 8,
+    borderRadius: 8,
+    marginBottom: 20,
+    alignItems: 'center',
+  },
+  offlineText: {
+    color: '#ef4444',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  pendingBanner: {
+    backgroundColor: 'rgba(245, 158, 11, 0.1)',
+    padding: 8,
+    borderRadius: 8,
+    marginBottom: 16,
+    alignItems: 'center',
+  },
+  pendingText: {
+    color: '#f59e0b',
+    fontSize: 12,
+    fontWeight: '600',
   },
   title: {
-    fontSize: 24,
+    fontSize: 32,
     fontWeight: 'bold',
     color: '#fafafa',
-    marginBottom: 12,
+    marginBottom: 16,
+  },
+  editTitleInput: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#fafafa',
+    marginBottom: 16,
+  },
+  editBodyInput: {
+    fontSize: 17,
+    color: '#a3a3a3',
+    lineHeight: 26,
+    flex: 1,
+    minHeight: 400,
+  },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 24,
+    gap: 12,
+  },
+  date: {
+    fontSize: 13,
+    color: '#666',
   },
   tags: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
-    marginBottom: 16,
-  },
-  tag: {
-    backgroundColor: '#6366f1',
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 6,
   },
   tagText: {
-    color: '#fff',
-    fontSize: 12,
+    color: '#6366f1',
+    fontSize: 13,
+    fontWeight: '500',
   },
   body: {
     fontSize: 16,
-    lineHeight: 24,
-    color: '#a3a3a3',
+    lineHeight: 28,
+    color: '#d4d4d4',
   },
   center: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: '#0a0a0a',
   },
-  muted: {
-    color: '#666',
+  actionBtn: {
+    color: '#6366f1',
+    fontSize: 17,
+    fontWeight: '600',
   },
-  error: {
+  deleteBtnText: {
     color: '#ef4444',
+    fontSize: 15,
+    opacity: 0.8,
+  },
+  iconBtn: {
+    padding: 4,
   },
 });
