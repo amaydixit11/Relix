@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { useNoteSearch, noteService } from '@relix/core';
+import { noteService } from '@relix/core';
+import { pluginManager } from '@relix/plugins';
 
 interface CommandPaletteProps {
   isOpen: boolean;
@@ -22,10 +23,30 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
-  
-  const { data: searchResults } = useNoteSearch(query);
 
-  const commands: Command[] = [
+  // Get plugin commands
+  const [pluginCommands, setPluginCommands] = useState<Command[]>([]);
+
+  useEffect(() => {
+    // Poll for plugin commands (in real app, use subscription)
+    const cmds = pluginManager.getCommands().map(c => ({
+      id: c.id,
+      label: c.name,
+      shortcut: c.shortcut,
+      icon: '🧩',
+      action: () => {
+        // Mock context for now
+        pluginManager.executeCommand(c.id, {
+          notify: (msg) => alert(msg), // Replace with toast
+          updateContent: async (content) => console.log('Update:', content),
+        }).catch(console.error);
+      }
+    }));
+    setPluginCommands(cmds);
+  }, [isOpen]);
+
+  // Built-in commands
+  const builtinCommands: Command[] = [
     { id: 'new-note', label: 'New Note', shortcut: '⌘N', icon: '✏️', action: () => router.push('/notes/new') },
     { id: 'all-notes', label: 'All Notes', shortcut: '⌘⇧N', icon: '📝', action: () => router.push('/notes') },
     { id: 'graph', label: 'Graph View', shortcut: '⌘G', icon: '🕸️', action: () => router.push('/graph') },
@@ -33,6 +54,8 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
     { id: 'settings', label: 'Settings', shortcut: '⌘,', icon: '⚙️', action: () => router.push('/settings') },
     { id: 'daily', label: 'Today\'s Note', shortcut: '⌘D', icon: '📅', action: () => createDailyNote() },
   ];
+
+  const commands = [...builtinCommands, ...pluginCommands];
 
   const createDailyNote = async () => {
     const today = new Date().toISOString().split('T')[0];
@@ -47,20 +70,41 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
     }
   };
 
-  // Filter commands and notes
+  // Search notes functionality
+  const [searchedNotes, setSearchedNotes] = useState<Command[]>([]);
+
+  useEffect(() => {
+    if (!isOpen || query.length < 2) {
+      setSearchedNotes([]);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      try {
+        const notes = await noteService.search(query);
+        const searchResults = notes.map(n => ({
+          id: n.id,
+          label: n.content.title || 'Untitled',
+          icon: '📄',
+          action: () => router.push(`/notes/${n.id}`)
+        }));
+        setSearchedNotes(searchResults);
+      } catch (err) {
+        console.error('Search notes failed:', err);
+      }
+    }, 200);
+
+    return () => clearTimeout(timer);
+  }, [query, isOpen, router]);
+
+  // Combine commands and notes
   const filteredCommands = query.length === 0 
     ? commands 
     : commands.filter(c => c.label.toLowerCase().includes(query.toLowerCase()));
 
   const allItems = [
     ...filteredCommands.map(c => ({ type: 'command' as const, ...c })),
-    ...(searchResults || []).map(note => ({
-      type: 'note' as const,
-      id: note.id,
-      label: note.content.title,
-      icon: '📄',
-      action: () => router.push(`/notes/${note.id}`),
-    })),
+    ...searchedNotes.map(n => ({ type: 'note' as const, ...n })),
   ];
 
   // Keyboard navigation
@@ -113,24 +157,27 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
       style={{
         position: 'fixed',
         inset: 0,
-        background: 'rgba(0, 0, 0, 0.7)',
+        background: 'rgba(0, 0, 0, 0.6)',
+        backdropFilter: 'blur(4px)',
         display: 'flex',
         justifyContent: 'center',
         paddingTop: '15vh',
         zIndex: 1000,
+        animation: 'fadeInScale 0.2s',
       }}
       onClick={onClose}
     >
       <div 
+        className="glass-panel"
         style={{
-          background: 'var(--bg-primary)',
-          border: '1px solid var(--border)',
-          borderRadius: '12px',
+          borderRadius: '16px',
           width: '100%',
           maxWidth: '600px',
           maxHeight: '60vh',
           overflow: 'hidden',
-          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
+          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255,255,255,0.1)',
+          display: 'flex',
+          flexDirection: 'column',
         }}
         onClick={e => e.stopPropagation()}
       >
@@ -146,9 +193,11 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
               width: '100%',
               background: 'transparent',
               border: 'none',
-              fontSize: '16px',
+              fontSize: '18px',
               outline: 'none',
               color: 'var(--text-primary)',
+              padding: '8px',
+              fontFamily: 'var(--font-sans)',
             }}
           />
         </div>
@@ -177,17 +226,6 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                   <span style={{ fontSize: '16px' }}>{item.icon}</span>
                   <span>{item.label}</span>
-                  {item.type === 'note' && (
-                    <span style={{ 
-                      fontSize: '10px', 
-                      background: 'var(--bg-tertiary)', 
-                      padding: '2px 6px', 
-                      borderRadius: '4px',
-                      color: 'var(--text-muted)',
-                    }}>
-                      note
-                    </span>
-                  )}
                 </div>
                 {'shortcut' in item && item.shortcut && (
                   <span style={{ 
