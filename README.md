@@ -38,10 +38,20 @@ packages/
 
 1. **ACORDE daemon** running on localhost:7331
    ```bash
-   acorde serve --port 7331
+   acorde daemon --api-port 7331
    ```
 
 2. **Node.js 18+**
+
+### Acorde Dependency
+
+Relix requires a local ACORDE daemon.
+
+```bash
+acorde daemon --api-port 7331
+```
+
+Relix talks to `http://localhost:7331` by default.
 
 ### Setup
 
