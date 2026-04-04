@@ -14,23 +14,22 @@ export class NoteService {
     body: string,
     tags: string[] = []
   ): Promise<Note> {
-    const now = Date.now();
     const content: NoteContent = {
       title,
       body,
       format: 'md',
-      created_at: now,
-      updated_at: now,
     };
 
-    // Extract wikilinks and add as outlink tags
-    const wikilinks = extractWikilinks(body);
-    const allTags = [...tags, ...wikilinks.map((id) => `outlink:${id}`)];
+    // Extract wikilinks and resolve them to IDs
+    const wikilinkTitles = extractWikilinks(body);
+    const resolvedIds = await this.resolveTitlesToIds(wikilinkTitles);
+    
+    const allTags = [...tags, ...resolvedIds.map((id) => `outlink:${id}`)];
 
     const note = await acorde.createEntry<NoteContent>('note', content, allTags);
 
     // Update backlinks on target notes
-    for (const targetId of wikilinks) {
+    for (const targetId of resolvedIds) {
       await this.addBacklink(targetId, note.id);
     }
 
@@ -41,7 +40,9 @@ export class NoteService {
    * Get a note by ID
    */
   async get(id: string): Promise<Note> {
-    return acorde.getEntry<NoteContent>(id);
+    const note = await acorde.getEntry<NoteContent>(id);
+    if (note.deleted) throw new Error('Note not found (deleted)');
+    return note;
   }
 
   /**
@@ -54,21 +55,23 @@ export class NoteService {
   ): Promise<Note> {
     const existing = await this.get(id);
     const oldWikilinks = extractWikilinks(existing.content.body);
+    const oldIds = await this.resolveTitlesToIds(oldWikilinks);
 
     const content: NoteContent = {
       ...existing.content,
       ...patch,
-      updated_at: Date.now(),
     };
 
     // Handle wikilink changes
     const newWikilinks = extractWikilinks(content.body);
-    const added = newWikilinks.filter((id) => !oldWikilinks.includes(id));
-    const removed = oldWikilinks.filter((id) => !newWikilinks.includes(id));
+    const newIds = await this.resolveTitlesToIds(newWikilinks);
+    
+    const added = newIds.filter((id) => !oldIds.includes(id));
+    const removed = oldIds.filter((id) => !newIds.includes(id));
 
     // Update outlink tags
     let allTags = tags ?? existing.tags.filter((t) => !t.startsWith('outlink:'));
-    allTags = [...allTags, ...newWikilinks.map((id) => `outlink:${id}`)];
+    allTags = [...allTags, ...newIds.map((id) => `outlink:${id}`)];
 
     const note = await acorde.updateEntry<NoteContent>(id, content, allTags);
 
@@ -90,7 +93,9 @@ export class NoteService {
     // Remove backlinks from targets
     const note = await this.get(id);
     const wikilinks = extractWikilinks(note.content.body);
-    for (const targetId of wikilinks) {
+    const resolvedIds = await this.resolveTitlesToIds(wikilinks);
+    
+    for (const targetId of resolvedIds) {
       await this.removeBacklink(targetId, id);
     }
 
@@ -101,42 +106,54 @@ export class NoteService {
    * List notes with optional filters
    */
   async list(filter?: NoteFilter): Promise<Note[]> {
-    return acorde.listEntries<NoteContent>({ ...filter, type: 'note' });
+    const notes = await acorde.listEntries<NoteContent>({ 
+      ...filter, 
+      type: 'note'
+    });
+    
+    return notes.filter(n => !n.deleted);
   }
 
   /**
-   * Search notes
+   * Search notes (Client-side filtering for contract compatibility)
    */
   async search(query: string, limit = 20): Promise<Note[]> {
-    void limit; // Limit not easily supported by simple search wrapper yet
-    return acorde.searchEntries<NoteContent>(query, 'note');
+    const notes = await this.list();
+    const q = query.toLowerCase();
+    
+    return notes
+      .filter(n => 
+        n.content.title.toLowerCase().includes(q) || 
+        n.content.body.toLowerCase().includes(q)
+      )
+      .slice(0, limit);
   }
 
   /**
-   * Get notes that link TO this note (backlinks)
+   * Resolve a list of wikilink titles (or IDs) to entry IDs.
+   * If a title matches an existing note, it returns that ID.
    */
-  async getBacklinks(id: string): Promise<Note[]> {
-    return acorde.listEntries<NoteContent>({ type: 'note', tag: `outlink:${id}` });
-  }
+  private async resolveTitlesToIds(identifiers: string[]): Promise<string[]> {
+    const allNotes = await this.list();
+    const resolved: string[] = [];
 
-  /**
-   * Get notes that this note links TO (outlinks)
-   */
-  async getOutlinks(id: string): Promise<Note[]> {
-    const note = await this.get(id);
-    const outlinks = note.tags
-      .filter((t) => t.startsWith('outlink:'))
-      .map((t) => t.replace('outlink:', ''));
-
-    const notes: Note[] = [];
-    for (const targetId of outlinks) {
-      try {
-        notes.push(await this.get(targetId));
-      } catch {
-        // Note may have been deleted
+    for (const iden of identifiers) {
+      // 1. Check if it's already a valid UUID (optional, but good)
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (uuidRegex.test(iden)) {
+        resolved.push(iden);
+        continue;
       }
+
+      // 2. Resolve by title
+      const matched = allNotes.find(n => n.content.title.toLowerCase() === iden.toLowerCase());
+      if (matched) {
+        resolved.push(matched.id);
+      }
+      // If not found, we don't return an ID (unresolved link)
     }
-    return notes;
+
+    return Array.from(new Set(resolved));
   }
 
   // ─────────────────────────────────────────────────────────────

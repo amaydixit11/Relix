@@ -6,8 +6,6 @@ export interface NoteContent {
   title: string;
   body: string;
   format: 'md' | 'plain';
-  created_at: number;
-  updated_at: number;
 }
 
 // Log Content Schema  
@@ -97,9 +95,26 @@ export interface NoteFilter {
   offset?: number;
 }
 
+// Sync & P2P Models
+export interface PeerInfo {
+  id: string;
+  addrs: string[];
+  protocol?: string;
+  name?: string;
+  last_seen?: number;
+  connection_type?: 'direct' | 'relay';
+}
+
+export interface LocalIdentity {
+  peer_id: string;
+  addrs: string[];
+  name?: string;
+}
+
 // Sync Status
 export interface SyncStatus {
   connected: boolean;
+  peer_id?: string; // This device's ID
   peers: number;
   last_sync: number;
   pending_changes: number;

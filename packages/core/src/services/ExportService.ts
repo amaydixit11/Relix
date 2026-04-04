@@ -17,8 +17,8 @@ export class ExportService {
     const frontmatter = [
       '---',
       `title: "${note.content.title}"`,
-      `created: ${new Date(note.content.created_at).toISOString()}`,
-      `updated: ${new Date(note.content.updated_at).toISOString()}`,
+      `created: ${new Date(note.created_at).toISOString()}`,
+      `updated: ${new Date(note.updated_at).toISOString()}`,
       userTags ? `tags: [${note.tags.filter(t => !t.startsWith('backlink:') && !t.startsWith('outlink:')).map(t => `"${t}"`).join(', ')}]` : '',
       '---',
       '',
@@ -28,33 +28,22 @@ export class ExportService {
   }
 
   /**
-   * Export all notes to a ZIP file
+   * Export all notes to a real ZIP file using JSZip
    */
   async exportToZip(): Promise<Blob> {
+    const JSZip = (await import('jszip')).default;
+    const zip = new JSZip();
     const notes = await noteService.list();
-    
-    // Simple ZIP format without compression
-    // In production, use a proper ZIP library like JSZip
-    const files: { name: string; content: string }[] = [];
 
     for (const note of notes) {
       const safeName = note.content.title
-        .replace(/[^a-z0-9]/gi, '_')
-        .slice(0, 50);
+        .replace(/[/\\?%*:|"<>]/g, '-')
+        .slice(0, 50) || 'untitled';
       
-      files.push({
-        name: `${safeName}.md`,
-        content: this.noteToMarkdown(note),
-      });
+      zip.file(`${safeName}.md`, this.noteToMarkdown(note));
     }
 
-    // Create a simple concatenated export (for real ZIP, use JSZip)
-    const manifest = files.map(f => f.name).join('\n');
-    const content = files.map(f => `\n===FILE:${f.name}===\n${f.content}`).join('');
-    
-    return new Blob([`# Relix Export\n# ${new Date().toISOString()}\n# ${files.length} notes\n\n${manifest}\n${content}`], {
-      type: 'text/plain',
-    });
+    return await zip.generateAsync({ type: 'blob' });
   }
 
   /**
@@ -90,7 +79,7 @@ export class ExportService {
   async downloadAll() {
     const blob = await this.exportToZip();
     const date = new Date().toISOString().split('T')[0];
-    this.downloadFile(blob, `relix-export-${date}.txt`);
+    this.downloadFile(blob, `relix-export-${date}.zip`);
   }
 }
 

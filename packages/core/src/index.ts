@@ -9,6 +9,7 @@ export { NoteService, noteService } from './services';
 export { FileService, fileService } from './services';
 export { GraphService, graphService } from './services';
 export { ExportService, exportService } from './services';
+export { P2PService, p2pService } from './services';
 
 // Hooks
 export * from './hooks';

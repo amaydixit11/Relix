@@ -74,9 +74,3 @@ export class Benchmark {
     }
   }
 }
-
-// Run if called directly
-if (require.main === module) {
-  const count = process.argv[2] ? parseInt(process.argv[2]) : 100;
-  new Benchmark().run(count);
-}

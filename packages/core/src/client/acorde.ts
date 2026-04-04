@@ -1,4 +1,4 @@
-import type { Entry, EntryType, NoteFilter, SyncStatus, VaultInfo } from '../models';
+import type { Entry, EntryType, LocalIdentity, NoteFilter, PeerInfo, SyncStatus, VaultInfo } from '../models';
 
 const API_BASE =
   process.env.ACORDE_BASE_URL ||
@@ -15,6 +15,14 @@ export class AcordeClient {
 
   constructor(baseUrl: string = API_BASE) {
     this.baseUrl = baseUrl;
+  }
+
+  /**
+   * Update the API base URL at runtime.
+   * Useful for mobile apps switching between local and remote daemons.
+   */
+  setBaseUrl(url: string) {
+    this.baseUrl = url;
   }
 
   async listEntries<T>(filter?: NoteFilter): Promise<Entry<T>[]> {
@@ -121,6 +129,18 @@ export class AcordeClient {
       body: JSON.stringify({ code }),
     });
     if (!res.ok) throw new Error(`Failed to pair device: ${res.statusText}`);
+  }
+
+  async getIdentity(): Promise<LocalIdentity> {
+    const res = await fetch(`${this.baseUrl}/identity`);
+    if (!res.ok) throw new Error(`Failed to get identity: ${res.statusText}`);
+    return res.json();
+  }
+
+  async getPeers(): Promise<PeerInfo[]> {
+    const res = await fetch(`${this.baseUrl}/peers`);
+    if (!res.ok) throw new Error(`Failed to get peers: ${res.statusText}`);
+    return res.json();
   }
 
   async getStatus(): Promise<VaultInfo & SyncStatus> {
