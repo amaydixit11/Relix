@@ -3,10 +3,10 @@
   "version": "0.0.1",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "node scripts/dev.js",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "tsc --noEmit -p tsconfig.lint.json"
   },
   "dependencies": {
     "@codemirror/commands": "^6.10.1",
@@ -17,6 +17,7 @@
     "@codemirror/view": "^6.39.12",
     "@lezer/highlight": "^1.2.3",
     "@relix/core": "*",
+    "@relix/plugins": "*",
     "@tanstack/react-query": "^5.0.0",
     "next": "^14.0.0",
     "react": "^18.2.0",

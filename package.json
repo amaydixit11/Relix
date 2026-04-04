@@ -3,6 +3,7 @@
   "private": true,
   "scripts": {
     "dev": "turbo dev",
+    "web": "turbo dev --filter @relix/web --",
     "build": "turbo build",
     "lint": "turbo lint",
     "test": "turbo test",
