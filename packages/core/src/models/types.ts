@@ -49,6 +49,7 @@ export interface Entry<T = unknown> {
   created_at: number;
   updated_at: number;
   deleted: boolean;
+  owner: string;
 }
 
 // Typed Entry Aliases
@@ -102,6 +103,17 @@ export interface SyncStatus {
   peers: number;
   last_sync: number;
   pending_changes: number;
+}
+
+// ACL
+export type Permission = 'owner' | 'writer' | 'reader';
+
+export interface ACL {
+  entry_id: string;
+  owner: string; // PeerID
+  writers: string[];
+  readers: string[];
+  public: boolean;
 }
 
 // Vault Info

@@ -8,7 +8,6 @@ export { AcordeClient, acorde } from './client';
 export { NoteService, noteService } from './services';
 export { FileService, fileService } from './services';
 export { GraphService, graphService } from './services';
-export { VersionService, versionService } from './services';
 export { ExportService, exportService } from './services';
 
 // Hooks
