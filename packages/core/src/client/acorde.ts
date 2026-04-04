@@ -1,10 +1,14 @@
-import type { Entry, NoteFilter, VaultInfo, SyncStatus, EntryType } from '../models';
+import type { Entry, EntryType, NoteFilter, SyncStatus, VaultInfo } from '../models';
 
-const API_BASE = 'http://localhost:7331';
+const API_BASE =
+  process.env.ACORDE_BASE_URL ||
+  process.env.NEXT_PUBLIC_ACORDE_BASE_URL ||
+  process.env.NEXT_PUBLIC_ACORDE_URI ||
+  'http://localhost:7331';
 
 /**
  * ACORDE REST API Client
- * Wraps the ACORDE daemon REST API
+ * Wraps the published ACORDE daemon REST API contract.
  */
 export class AcordeClient {
   private baseUrl: string;
@@ -12,10 +16,6 @@ export class AcordeClient {
   constructor(baseUrl: string = API_BASE) {
     this.baseUrl = baseUrl;
   }
-
-  // ─────────────────────────────────────────────────────────────
-  // Entries
-  // ─────────────────────────────────────────────────────────────
 
   async listEntries<T>(filter?: NoteFilter): Promise<Entry<T>[]> {
     const params = new URLSearchParams();
@@ -26,7 +26,7 @@ export class AcordeClient {
 
     const res = await fetch(`${this.baseUrl}/entries?${params}`);
     if (!res.ok) throw new Error(`Failed to list entries: ${res.statusText}`);
-    
+
     const data = await res.json();
     return this.decodeEntries<T>(data);
   }
@@ -34,7 +34,7 @@ export class AcordeClient {
   async getEntry<T>(id: string): Promise<Entry<T>> {
     const res = await fetch(`${this.baseUrl}/entries/${id}`);
     if (!res.ok) throw new Error(`Entry not found: ${id}`);
-    
+
     const data = await res.json();
     return this.decodeEntry<T>(data);
   }
@@ -86,12 +86,20 @@ export class AcordeClient {
     if (!res.ok) throw new Error(`Failed to delete entry: ${res.statusText}`);
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // Search
-  // ─────────────────────────────────────────────────────────────
+  async authorizeWriter(entryId: string, peerId: string): Promise<void> {
+    const res = await fetch(`${this.baseUrl}/entries/${entryId}/authorize`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ peer_id: peerId }),
+    });
+    if (!res.ok) throw new Error(`Failed to authorize writer access: ${res.statusText}`);
+  }
 
-  async search<T>(query: string, limit = 20): Promise<Entry<T>[]> {
-    const params = new URLSearchParams({ q: query, limit: limit.toString() });
+  async searchEntries<T>(query: string, type?: EntryType): Promise<Entry<T>[]> {
+    const params = new URLSearchParams();
+    params.set('q', query);
+    if (type) params.set('type', type);
+
     const res = await fetch(`${this.baseUrl}/search?${params}`);
     if (!res.ok) throw new Error(`Search failed: ${res.statusText}`);
 
@@ -99,9 +107,21 @@ export class AcordeClient {
     return this.decodeEntries<T>(data);
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // Status & Health
-  // ─────────────────────────────────────────────────────────────
+  async generateInvite(): Promise<string> {
+    const res = await fetch(`${this.baseUrl}/invite`, { method: 'POST' });
+    if (!res.ok) throw new Error(`Failed to generate invite: ${res.statusText}`);
+    const data = await res.json();
+    return data.code;
+  }
+
+  async pairDevice(code: string): Promise<void> {
+    const res = await fetch(`${this.baseUrl}/pair`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code }),
+    });
+    if (!res.ok) throw new Error(`Failed to pair device: ${res.statusText}`);
+  }
 
   async getStatus(): Promise<VaultInfo & SyncStatus> {
     const res = await fetch(`${this.baseUrl}/status`);
@@ -118,9 +138,21 @@ export class AcordeClient {
     }
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // Events (SSE)
-  // ─────────────────────────────────────────────────────────────
+  async uploadBlob(file: Blob): Promise<string> {
+    const res = await fetch(`${this.baseUrl}/blobs`, {
+      method: 'POST',
+      body: file,
+    });
+    if (!res.ok) throw new Error(`Failed to upload blob: ${res.statusText}`);
+    const data = await res.json();
+    return data.cid;
+  }
+
+  async getBlob(cid: string): Promise<Blob> {
+    const res = await fetch(`${this.baseUrl}/blobs/${cid}`);
+    if (!res.ok) throw new Error(`Blob not found: ${res.statusText}`);
+    return res.blob();
+  }
 
   subscribeToEvents(
     onEvent: (event: { type: string; entry_id: string }) => void
@@ -137,29 +169,16 @@ export class AcordeClient {
     return eventSource;
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // Helpers
-  // ─────────────────────────────────────────────────────────────
-
   private decodeEntry<T>(data: Record<string, unknown>): Entry<T> {
-    let content: T;
-    try {
-      // ACORDE returns content as base64 string
-      const raw = data.Content as string;
-      const decoded = atob(raw);
-      content = JSON.parse(decoded);
-    } catch {
-      content = data.Content as T;
-    }
-
     return {
-      id: data.ID as string,
-      type: data.Type as EntryType,
-      content,
-      tags: (data.Tags as string[]) || [],
-      created_at: data.CreatedAt as number,
-      updated_at: data.UpdatedAt as number,
-      deleted: data.Deleted as boolean,
+      id: this.pick(data, 'id', 'ID') as string,
+      type: this.pick(data, 'type', 'Type') as EntryType,
+      content: this.decodeContent<T>(this.pick(data, 'content', 'Content')),
+      tags: ((this.pick(data, 'tags', 'Tags') as string[]) || []),
+      created_at: (this.pick(data, 'created_at', 'CreatedAt') as number) ?? 0,
+      updated_at: (this.pick(data, 'updated_at', 'UpdatedAt') as number) ?? 0,
+      deleted: Boolean(this.pick(data, 'deleted', 'Deleted')),
+      owner: (this.pick(data, 'owner', 'Owner') as string) ?? '',
     };
   }
 
@@ -167,7 +186,52 @@ export class AcordeClient {
     if (!Array.isArray(data)) return [];
     return data.map((item) => this.decodeEntry<T>(item as Record<string, unknown>));
   }
+
+  private pick(data: Record<string, unknown>, ...keys: string[]): unknown {
+    for (const key of keys) {
+      if (key in data) return data[key];
+    }
+    return undefined;
+  }
+
+  private decodeContent<T>(rawContent: unknown): T {
+    if (typeof rawContent !== 'string') {
+      return ((rawContent ?? {}) as T);
+    }
+
+    const decoded = this.decodeBase64(rawContent);
+    return this.parseStructuredContent<T>(decoded ?? rawContent);
+  }
+
+  private parseStructuredContent<T>(value: string): T {
+    try {
+      return JSON.parse(value) as T;
+    } catch {
+      return ({ raw: value } as unknown) as T;
+    }
+  }
+
+  private decodeBase64(value: string): string | null {
+    try {
+      if (typeof atob === 'function') {
+        const binary = atob(value);
+        const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+        return new TextDecoder().decode(bytes);
+      }
+    } catch {
+      return null;
+    }
+
+    try {
+      if (typeof Buffer !== 'undefined') {
+        return Buffer.from(value, 'base64').toString('utf-8');
+      }
+    } catch {
+      return null;
+    }
+
+    return null;
+  }
 }
 
-// Singleton instance
 export const acorde = new AcordeClient();
