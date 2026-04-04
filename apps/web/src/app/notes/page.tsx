@@ -9,10 +9,14 @@ export default function NotesPage() {
   const [search, setSearch] = useState('');
   const { data: notes, isLoading } = useNotes();
 
-  const filteredNotes = notes?.filter(n => 
-    n.content.title.toLowerCase().includes(search.toLowerCase()) ||
-    n.tags.some(t => t.toLowerCase().includes(search.toLowerCase()))
-  ) || [];
+  const filteredNotes = notes?.filter(n => {
+    const title = n.content?.title || '';
+    const tags = n.tags || [];
+    const query = search.toLowerCase();
+    
+    return title.toLowerCase().includes(query) ||
+           tags.some(t => t.toLowerCase().includes(query));
+  }) || [];
 
   return (
     <PageLayout>
@@ -64,7 +68,7 @@ export default function NotesPage() {
               }}
             >
               <div style={{ fontWeight: 600, fontSize: '1rem', marginBottom: '0.5rem', color: 'var(--text-primary)' }}>
-                {note.content.title}
+                {note.content?.title || 'Untitled'}
               </div>
               <div style={{ 
                 fontSize: '0.85rem', 
@@ -76,10 +80,10 @@ export default function NotesPage() {
                 marginBottom: '1rem',
                 lineHeight: 1.5,
               }}>
-                {note.content.body}
+                {note.content?.body || ''}
               </div>
               <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                {note.tags
+                {(note.tags || [])
                   .filter(t => !t.startsWith('backlink:') && !t.startsWith('outlink:'))
                   .slice(0, 3)
                   .map(t => (
