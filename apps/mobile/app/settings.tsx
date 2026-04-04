@@ -1,31 +1,42 @@
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, Modal, ScrollView } from 'react-native';
+import {
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  StyleSheet,
+  Alert,
+  Modal,
+  ScrollView,
+} from 'react-native';
 import { Stack } from 'expo-router';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { p2pService } from '@relix/core';
-import type { LocalIdentity, PeerInfo, SyncStatus } from '@relix/core';
+import {
+  connectionService,
+  useConnectionState,
+} from '@relix/core';
 import { BarCodeScanner } from 'expo-barcode-scanner';
 
 export default function SettingsScreen() {
-  const [identity, setIdentity] = useState<LocalIdentity | null>(null);
-  const [peers, setPeers] = useState<PeerInfo[]>([]);
-  const [status, setStatus] = useState<SyncStatus | null>(null);
+  const connection = useConnectionState();
   const [inviteCode, setInviteCode] = useState('');
   const [isSyncing, setIsSyncing] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
   const [bridgeUrl, setBridgeUrl] = useState('http://localhost:7331');
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [editingPeerId, setEditingPeerId] = useState<string | null>(null);
+  const [nicknameDraft, setNicknameDraft] = useState('');
 
   useEffect(() => {
-    AsyncStorage.getItem('@relix/server_url').then(url => {
+    void AsyncStorage.getItem('@relix/server_url').then((url) => {
       if (url) {
         setBridgeUrl(url);
-        p2pService.setBaseUrl(url);
+        connectionService.setBaseUrl(url);
       }
-      loadData();
     });
 
-    (async () => {
+    void (async () => {
       const { status } = await BarCodeScanner.requestPermissionsAsync();
       setHasPermission(status === 'granted');
     })();
@@ -34,38 +45,19 @@ export default function SettingsScreen() {
   const saveBridge = async (url: string) => {
     setBridgeUrl(url);
     await AsyncStorage.setItem('@relix/server_url', url);
-    p2pService.setBaseUrl(url);
-    loadData();
-  };
-
-  const loadData = async () => {
-    setIsSyncing(true);
-    try {
-      const [idRes, peersRes, statusRes] = await Promise.all([
-        p2pService.getLocalIdentity().catch(() => null),
-        p2pService.getConnectedPeers().catch(() => []),
-        p2pService.getStatus().catch(() => null),
-      ]);
-      setIdentity(idRes);
-      setPeers(peersRes);
-      setStatus(statusRes);
-    } catch (err) {
-      console.warn('Failed to load P2P data:', err);
-    }
-    setIsSyncing(false);
+    connectionService.setBaseUrl(url);
   };
 
   const handlePair = async (code: string = inviteCode) => {
     const finalCode = typeof code === 'string' ? code : inviteCode;
     if (!finalCode) return;
-    
+
     setIsSyncing(true);
     try {
-      await p2pService.pairDevice(finalCode);
+      await connectionService.pairDevice(finalCode);
       setInviteCode('');
       setShowScanner(false);
       Alert.alert('Success', 'Successfully paired with device!');
-      loadData();
     } catch (err: any) {
       Alert.alert('Pairing Failed', err.message);
     }
@@ -74,48 +66,47 @@ export default function SettingsScreen() {
 
   const handleBarCodeScanned = ({ data }: { data: string }) => {
     setShowScanner(false);
-    handlePair(data);
+    void handlePair(data);
+  };
+
+  const handleRename = async (peerId: string) => {
+    await connectionService.renamePeer(peerId, nicknameDraft);
+    setEditingPeerId(null);
+    setNicknameDraft('');
   };
 
   return (
     <View style={styles.container}>
       <Stack.Screen options={{ title: 'Settings' }} />
       <ScrollView contentContainerStyle={styles.scroll}>
-        
-        {/* Bridge Config Section */}
-        <Section title="Bridge Configuration">
-          <Text style={styles.label}>ACORDE Instance URL</Text>
-          <View style={styles.pairRow}>
-            <TextInput
-              style={styles.input}
-              value={bridgeUrl}
-              onChangeText={setBridgeUrl}
-              placeholder="http://192.168.x.x:7331"
-              placeholderTextColor="#666"
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-            <TouchableOpacity style={styles.pairButton} onPress={() => saveBridge(bridgeUrl)}>
-              <Text style={styles.pairButtonText}>Set</Text>
-            </TouchableOpacity>
-          </View>
-          <Text style={styles.hint}>
-            Enter the IP address of the device running the ACORDE daemon.
-          </Text>
-        </Section>
-
-        {/* Connection Section */}
         <Section title="Sync & Pairing">
-          {identity ? (
+          <View style={styles.badge}>
+            <View style={styles.badgeDot} />
+            <Text style={styles.badgeText}>Local Network Only Until Relay Is Verified</Text>
+          </View>
+
+          {connection.identity ? (
             <View style={styles.idCard}>
               <Text style={styles.idTitle}>This Device</Text>
-              <Text style={styles.idValue}>{identity.peer_id}</Text>
-              <Text style={styles.idHint}>Device addresses visible on local network</Text>
+              <Text style={styles.idValue}>{connection.identity.peer_id}</Text>
+              <Text style={styles.idHint}>
+                {connection.connectionType === 'relay'
+                  ? 'Connected through relay'
+                  : connection.connectionType === 'direct'
+                    ? 'Connected directly'
+                    : 'Ready to pair on your local network'}
+              </Text>
             </View>
           ) : (
-            <TouchableOpacity style={styles.connectState} onPress={loadData}>
+            <TouchableOpacity
+              style={styles.connectState}
+              onPress={() => {
+                setIsSyncing(true);
+                void connectionService.refresh().finally(() => setIsSyncing(false));
+              }}
+            >
               <Text style={styles.statusOffline}>○ No Active Connection</Text>
-              <Text style={styles.hint}>Tap to retry connecting to local daemon</Text>
+              <Text style={styles.hint}>Tap to retry connecting to the daemon</Text>
             </TouchableOpacity>
           )}
 
@@ -129,45 +120,105 @@ export default function SettingsScreen() {
               autoCapitalize="none"
               autoCorrect={false}
             />
-            <TouchableOpacity style={styles.pairButton} onPress={() => handlePair()}>
-              <Text style={styles.pairButtonText}>Pair</Text>
+            <TouchableOpacity style={styles.pairButton} onPress={() => void handlePair()}>
+              <Text style={styles.pairButtonText}>{isSyncing ? '...' : 'Pair'}</Text>
             </TouchableOpacity>
           </View>
 
-          <TouchableOpacity 
-            style={styles.scannerTrigger} 
-            onPress={() => setShowScanner(true)}
-          >
+          <TouchableOpacity style={styles.scannerTrigger} onPress={() => setShowScanner(true)}>
             <Text style={styles.scannerText}>Scan QR Code</Text>
           </TouchableOpacity>
+
+          <TouchableOpacity style={styles.advancedToggle} onPress={() => setShowAdvanced((current) => !current)}>
+            <Text style={styles.advancedToggleText}>
+              {showAdvanced ? 'Hide Advanced Connection Settings' : 'Show Advanced Connection Settings'}
+            </Text>
+          </TouchableOpacity>
+
+          {showAdvanced ? (
+            <View style={styles.advancedPanel}>
+              <Text style={styles.label}>ACORDE Instance URL</Text>
+              <View style={styles.pairRow}>
+                <TextInput
+                  style={styles.input}
+                  value={bridgeUrl}
+                  onChangeText={setBridgeUrl}
+                  placeholder="http://192.168.x.x:7331"
+                  placeholderTextColor="#666"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+                <TouchableOpacity style={styles.pairButton} onPress={() => void saveBridge(bridgeUrl)}>
+                  <Text style={styles.pairButtonText}>Set</Text>
+                </TouchableOpacity>
+              </View>
+              <Text style={styles.hint}>
+                Use manual bridge configuration only if QR pairing is unavailable.
+              </Text>
+            </View>
+          ) : null}
         </Section>
 
-        {/* Peers Section */}
-        <Section title="Connected Peers">
-          {peers.length > 0 ? (
-            peers.map(p => (
-              <View key={p.id} style={styles.peerRow}>
-                <View style={styles.peerInfo}>
-                  <Text style={styles.peerId}>{p.id.slice(0, 8)}...{p.id.slice(-4)}</Text>
-                  <Text style={styles.peerAddrs}>{p.addrs.length} addresses</Text>
+        <Section title="Paired Devices">
+          {connection.peers.length > 0 ? (
+            connection.peers.map((peer) => (
+              <View key={peer.id} style={styles.peerCard}>
+                <View style={styles.peerHeader}>
+                  <View style={styles.peerInfo}>
+                    <Text style={styles.peerId}>{peer.display_name}</Text>
+                    <Text style={styles.peerMeta}>{peer.id.slice(0, 12)}...{peer.id.slice(-6)}</Text>
+                  </View>
+                  <Text style={peer.is_connected ? styles.statusOnline : styles.statusMuted}>
+                    {peer.is_connected ? peer.connection_type || 'connected' : 'saved'}
+                  </Text>
                 </View>
-                <View style={styles.statusDot} />
+
+                <Text style={styles.peerMeta}>First paired: {formatTimestamp(peer.first_paired_at)}</Text>
+                <Text style={styles.peerMeta}>Last seen: {formatTimestamp(peer.last_seen_at)}</Text>
+                <Text style={styles.peerMeta}>Last sync: {formatTimestamp(peer.last_sync_at)}</Text>
+
+                {editingPeerId === peer.id ? (
+                  <View style={styles.pairRow}>
+                    <TextInput
+                      style={styles.input}
+                      value={nicknameDraft}
+                      onChangeText={setNicknameDraft}
+                      placeholder="Peer nickname"
+                      placeholderTextColor="#666"
+                    />
+                    <TouchableOpacity style={styles.pairButton} onPress={() => void handleRename(peer.id)}>
+                      <Text style={styles.pairButtonText}>Save</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <TouchableOpacity
+                    style={styles.renameButton}
+                    onPress={() => {
+                      setEditingPeerId(peer.id);
+                      setNicknameDraft(peer.nickname ?? '');
+                    }}
+                  >
+                    <Text style={styles.renameButtonText}>Rename Peer</Text>
+                  </TouchableOpacity>
+                )}
               </View>
             ))
           ) : (
-            <Text style={styles.muted}>No other devices connected yet.</Text>
+            <Text style={styles.muted}>No paired peers recorded yet.</Text>
           )}
         </Section>
 
         <Section title="About">
-          <InfoRow label="Vault Status" value={status?.connected ? 'Online' : 'Offline'} />
-          <InfoRow label="Local Notes" value={status?.pending_changes?.toString() ?? '0'} />
-          <InfoRow label="Protocol" value="ACORDE P2P v1" />
+          <InfoRow label="Vault Status" value={connection.daemonReachable ? 'Online' : 'Offline'} />
+          <InfoRow
+            label="Peers"
+            value={String(connection.peers.filter((peer) => peer.is_connected).length)}
+          />
+          <InfoRow label="Pending Changes" value={String(connection.pendingChanges)} />
+          <InfoRow label="Reachability" value="Local network only" />
         </Section>
-
       </ScrollView>
 
-      {/* QR Scanner Modal */}
       <Modal visible={showScanner} animationType="slide">
         <View style={styles.scannerContainer}>
           {hasPermission ? (
@@ -183,10 +234,7 @@ export default function SettingsScreen() {
               </TouchableOpacity>
             </View>
           )}
-          <TouchableOpacity 
-            style={styles.closeScanner} 
-            onPress={() => setShowScanner(false)}
-          >
+          <TouchableOpacity style={styles.closeScanner} onPress={() => setShowScanner(false)}>
             <Text style={styles.closeScannerText}>Cancel</Text>
           </TouchableOpacity>
         </View>
@@ -195,7 +243,7 @@ export default function SettingsScreen() {
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>{title}</Text>
@@ -211,6 +259,11 @@ function InfoRow({ label, value }: { label: string; value: string }) {
       <Text style={styles.infoValue}>{value}</Text>
     </View>
   );
+}
+
+function formatTimestamp(value?: number) {
+  if (!value) return 'Never';
+  return new Date(value * 1000).toLocaleString();
 }
 
 const styles = StyleSheet.create({
@@ -236,6 +289,31 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     textTransform: 'uppercase',
     letterSpacing: 1,
+  },
+  badge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(245, 158, 11, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.2)',
+    borderRadius: 999,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    marginBottom: 16,
+  },
+  badgeDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#f59e0b',
+  },
+  badgeText: {
+    color: '#f59e0b',
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   label: {
     fontSize: 13,
@@ -270,13 +348,32 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
-  statusOnline: { color: '#22c55e', fontSize: 14, fontWeight: '600' },
-  statusOffline: { color: '#ef4444', fontSize: 14, fontWeight: '600' },
-  hint: { fontSize: 12, color: '#666', textAlign: 'center' },
+  statusOnline: {
+    color: '#22c55e',
+    fontSize: 12,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+  },
+  statusOffline: {
+    color: '#ef4444',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  statusMuted: {
+    color: '#71717a',
+    fontSize: 12,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+  },
+  hint: {
+    fontSize: 12,
+    color: '#666',
+    textAlign: 'center',
+  },
   pairRow: {
     flexDirection: 'row',
     gap: 8,
-    marginTop: 4,
+    marginTop: 12,
   },
   input: {
     flex: 1,
@@ -310,32 +407,55 @@ const styles = StyleSheet.create({
     color: '#6366f1',
     fontWeight: '600',
   },
-  peerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  advancedToggle: {
+    marginTop: 12,
     alignItems: 'center',
-    paddingVertical: 12,
+  },
+  advancedToggleText: {
+    color: '#a1a1aa',
+    fontSize: 12,
+    textDecorationLine: 'underline',
+  },
+  advancedPanel: {
+    marginTop: 12,
+    paddingTop: 12,
     borderTopWidth: 1,
     borderTopColor: '#262626',
   },
+  peerCard: {
+    borderTopWidth: 1,
+    borderTopColor: '#262626',
+    paddingTop: 12,
+    marginTop: 12,
+  },
+  peerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 8,
+  },
   peerInfo: {
     flex: 1,
+    marginRight: 12,
   },
   peerId: {
     fontSize: 14,
     color: '#fafafa',
-    fontFamily: 'monospace',
+    fontWeight: '600',
   },
-  peerAddrs: {
+  peerMeta: {
     fontSize: 11,
     color: '#666',
     marginTop: 2,
   },
-  statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#22c55e',
+  renameButton: {
+    marginTop: 10,
+    alignSelf: 'flex-start',
+  },
+  renameButtonText: {
+    color: '#6366f1',
+    fontSize: 12,
+    fontWeight: '600',
   },
   muted: {
     color: '#666',

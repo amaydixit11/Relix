@@ -6,6 +6,7 @@ import { ReactNode } from 'react';
 import { CommandPalette, QuickCapture } from '@/components';
 import { useRelixShortcuts, useKeyboardShortcuts } from '@/hooks';
 import { pluginManager, aiPlugin } from '@relix/plugins';
+import { ConnectionProvider } from '@relix/core';
 
 import { UIProvider, useUI } from '@/context/UIContext';
 
@@ -55,13 +56,15 @@ export function Providers({ children }: { children: ReactNode }) {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <UIProvider>
-        <GlobalShortcuts>
-          {children}
-          <CommandPaletteWrapper />
-          <QuickCaptureWrapper />
-        </GlobalShortcuts>
-      </UIProvider>
+      <ConnectionProvider>
+        <UIProvider>
+          <GlobalShortcuts>
+            {children}
+            <CommandPaletteWrapper />
+            <QuickCaptureWrapper />
+          </GlobalShortcuts>
+        </UIProvider>
+      </ConnectionProvider>
     </QueryClientProvider>
   );
 }

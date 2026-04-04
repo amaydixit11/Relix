@@ -1,13 +1,11 @@
 'use client';
 
-import { useState } from 'react';
 import Link from 'next/link';
-import { useNotes, useHealthCheck, useVaultStatus } from '@relix/core';
+import { useNotes, useConnectionState } from '@relix/core';
 import { PageLayout } from '@/components';
 
 export default function HomePage() {
-  const { data: isHealthy, isLoading: healthLoading } = useHealthCheck();
-  const { data: status } = useVaultStatus();
+  const connection = useConnectionState();
   const { data: notes, isLoading: notesLoading } = useNotes({ limit: 6 });
 
   const getGreeting = () => {
@@ -58,7 +56,7 @@ export default function HomePage() {
           margin: '0 auto',
           lineHeight: 1.6,
         }}>
-          Your digital garden is growing. <span style={{ color: 'var(--accent-cyan)' }}>{status?.entries_count || 0} notes</span> securely synced.
+          Your digital garden is growing. <span style={{ color: 'var(--accent-cyan)' }}>{notes?.length || 0} recent notes</span> securely synced.
         </p>
       </header>
 
@@ -72,13 +70,13 @@ export default function HomePage() {
       }}>
         <StatusPill 
           label="System" 
-          value={healthLoading ? 'Checking...' : isHealthy ? 'Online' : 'Offline'}
-          dotColor={isHealthy ? 'var(--success)' : 'var(--error)'}
+          value={connection.daemonReachable ? 'Online' : 'Offline'}
+          dotColor={connection.daemonReachable ? 'var(--success)' : 'var(--error)'}
         />
-        {status && (
+        {connection.daemonReachable && (
           <>
-            <StatusPill label="Peers" value={`${status.peers} connected`} dotColor="var(--accent)" />
-            <StatusPill label="Sync" value="Up to date" dotColor="var(--accent-cyan)" />
+            <StatusPill label="Peers" value={`${connection.peers.filter((peer) => peer.is_connected).length} connected`} dotColor="var(--accent)" />
+            <StatusPill label="Sync" value={connection.pendingChanges > 0 ? `${connection.pendingChanges} pending` : 'Up to date'} dotColor="var(--accent-cyan)" />
           </>
         )}
       </div>

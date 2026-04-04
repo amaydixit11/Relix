@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { 
@@ -14,7 +14,6 @@ import {
 } from '@relix/core';
 import { MarkdownEditor } from '@/components/Editor';
 import { PageLayout } from '@/components';
-import Sidebar from '@/components/Sidebar/Sidebar';
 
 export default function NoteDetailPage() {
   const params = useParams();
@@ -23,8 +22,6 @@ export default function NoteDetailPage() {
 
   const { data: note, isLoading } = useNote(id);
   const { data: backlinks } = useBacklinks(id);
-  const { hasConflict, resetConflict } = useConflictDetection(id);
-  
   const updateNote = useUpdateNote();
   const deleteNote = useDeleteNote({
     onSuccess: () => router.push('/notes'),
@@ -42,6 +39,15 @@ export default function NoteDetailPage() {
       setLastSaved(new Date(note.updated_at));
     }
   }, [note]);
+
+  const hasLocalChanges =
+    Boolean(note) && (body !== note?.content.body || title !== note?.content.title);
+
+  const { hasConflict, resetConflict } = useConflictDetection(id, {
+    baselineUpdatedAt: note?.updated_at,
+    hasLocalChanges,
+    suppress: isSaving || updateNote.isPending,
+  });
 
   // Debounced auto-save
   useEffect(() => {
@@ -61,7 +67,7 @@ export default function NoteDetailPage() {
     }, 2000);
 
     return () => clearTimeout(timeout);
-  }, [body, title]);
+  }, [body, title, note, id, updateNote]);
 
   const handleWikilinkClick = async (idOrTitle: string) => {
     // 1. Try resolving title to ID

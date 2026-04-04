@@ -1,7 +1,7 @@
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, RefreshControl } from 'react-native';
 import { Link, Stack } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
-import { noteService, p2pService } from '@relix/core';
+import { noteService, p2pService, useConnectionState } from '@relix/core';
 import { useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { drainMutationQueue, getQueueCount, getCachedNotes, mergeRemoteNotes, type CachedNote } from '../src/offline';
@@ -25,6 +25,7 @@ async function fetchNotes() {
 }
 
 export default function HomeScreen() {
+  const connection = useConnectionState();
   const { data: notes = [], isLoading, isError, refetch } = useQuery<CachedNote[]>({
     queryKey: ['notes'],
     queryFn: fetchNotes,
@@ -54,9 +55,11 @@ export default function HomeScreen() {
       <Stack.Screen options={{ title: 'Relix' }} />
       
       {/* Sync Status Bar */}
-      <View style={[styles.statusBar, isError ? styles.statusOffline : styles.statusOnline]}>
+      <View style={[styles.statusBar, connection.daemonReachable && !isError ? styles.statusOnline : styles.statusOffline]}>
         <Text style={styles.statusText}>
-          {isError ? '● Offline / Working from cache' : '● Connected to Peer'}
+          {connection.daemonReachable && !isError
+            ? `● ${connection.peers.filter((peer) => peer.is_connected).length > 0 ? 'Connected to Peer' : 'Daemon Online'}`
+            : '● Offline / Working from cache'}
           {queueCount > 0 ? ` • ${queueCount} pending sync` : ''}
         </Text>
       </View>
