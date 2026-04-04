@@ -25,6 +25,10 @@ export class AcordeClient {
     this.baseUrl = url;
   }
 
+  getBaseUrl() {
+    return this.baseUrl;
+  }
+
   async listEntries<T>(filter?: NoteFilter): Promise<Entry<T>[]> {
     const params = new URLSearchParams();
     if (filter?.type) params.set('type', filter.type);

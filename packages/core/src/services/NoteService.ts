@@ -130,6 +130,35 @@ export class NoteService {
   }
 
   /**
+   * Get notes that link to this note.
+   */
+  async getBacklinks(id: string): Promise<Note[]> {
+    return this.list({ tag: `outlink:${id}` });
+  }
+
+  /**
+   * Get notes this note links out to.
+   */
+  async getOutlinks(id: string): Promise<Note[]> {
+    const note = await this.get(id);
+    const outlinkIds = note.tags
+      .filter((tag) => tag.startsWith('outlink:'))
+      .map((tag) => tag.replace('outlink:', ''));
+
+    const targets = await Promise.all(
+      outlinkIds.map(async (targetId) => {
+        try {
+          return await this.get(targetId);
+        } catch {
+          return null;
+        }
+      })
+    );
+
+    return targets.filter((note): note is Note => Boolean(note));
+  }
+
+  /**
    * Resolve a list of wikilink titles (or IDs) to entry IDs.
    * If a title matches an existing note, it returns that ID.
    */

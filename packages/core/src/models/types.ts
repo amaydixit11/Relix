@@ -111,6 +111,40 @@ export interface LocalIdentity {
   name?: string;
 }
 
+export interface PairingInvite {
+  code: string;
+  relay_status: RelayStatus;
+  expires_at?: number;
+}
+
+export interface PairedPeerMetadata {
+  peer_id: string;
+  nickname?: string;
+  first_paired_at: number;
+  last_seen_at?: number;
+  last_sync_at?: number;
+  last_connection_type?: 'direct' | 'relay';
+}
+
+export interface RemotePeer extends PeerInfo, PairedPeerMetadata {
+  is_connected: boolean;
+  display_name: string;
+}
+
+export type RelayStatus = 'local_network_only' | 'unverified' | 'relay_confirmed';
+export type ConnectionType = 'offline' | 'direct' | 'relay' | 'unknown';
+
+export interface ConnectionState {
+  initialized: boolean;
+  daemonReachable: boolean;
+  identity: LocalIdentity | null;
+  peers: RemotePeer[];
+  connectionType: ConnectionType;
+  lastSync: number | null;
+  pendingChanges: number;
+  relayStatus: RelayStatus;
+}
+
 // Sync Status
 export interface SyncStatus {
   connected: boolean;

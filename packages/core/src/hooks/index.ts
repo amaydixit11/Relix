@@ -1,5 +1,6 @@
 export * from './useGraph';
 export * from './useStatus';
+export * from './useConnection';
 export {
   noteKeys,
   useNotes,

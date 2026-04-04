@@ -10,6 +10,9 @@ export { FileService, fileService } from './services';
 export { GraphService, graphService } from './services';
 export { ExportService, exportService } from './services';
 export { P2PService, p2pService } from './services';
+export { ConnectionService, connectionService } from './services';
+export { PairedPeersStore, pairedPeersStore } from './services';
+export { configureRuntimeStorage } from './services';
 
 // Hooks
 export * from './hooks';
