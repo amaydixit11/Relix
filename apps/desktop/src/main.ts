@@ -6,6 +6,9 @@ import { existsSync, createWriteStream, mkdirSync } from 'fs';
 const isDev = !app.isPackaged;
 const DEFAULT_ACORDE_API_PORT = process.env.RELIX_ACORDE_API_PORT ?? '7331';
 const DEFAULT_ACORDE_PORT = process.env.RELIX_ACORDE_PORT ?? '4001';
+const DEV_SERVER_URL = process.env.RELIX_WEB_URL ?? 'http://localhost:3000';
+const DEV_SERVER_TIMEOUT_MS = 30000;
+const DEV_SERVER_POLL_MS = 500;
 
 let mainWindow: BrowserWindow | null = null;
 let acordeProcess: ChildProcessWithoutNullStreams | null = null;
@@ -75,6 +78,103 @@ function stopAcordeDaemon() {
   acordeProcess = null;
 }
 
+function renderLoadingScreen(message: string) {
+  if (!mainWindow) return;
+
+  const html = `
+    <!doctype html>
+    <html>
+      <head>
+        <meta charset="utf-8" />
+        <title>Relix</title>
+        <style>
+          body {
+            margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            background: #0a0a0a;
+            color: #fafafa;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+          }
+          .wrap {
+            width: min(420px, 90vw);
+            padding: 28px;
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 16px;
+            background: rgba(255,255,255,0.03);
+            box-shadow: 0 20px 40px rgba(0,0,0,0.35);
+          }
+          h1 {
+            margin: 0 0 12px;
+            font-size: 20px;
+          }
+          p {
+            margin: 0;
+            color: #a1a1aa;
+            line-height: 1.5;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="wrap">
+          <h1>Starting Relix</h1>
+          <p>${message}</p>
+        </div>
+      </body>
+    </html>
+  `;
+
+  void mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+}
+
+async function waitForDevServer(url: string, timeoutMs: number) {
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 1500);
+      const response = await fetch(url, {
+        method: 'GET',
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+
+      if (response.ok) return true;
+    } catch {
+      // Server is still starting up.
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, DEV_SERVER_POLL_MS));
+  }
+
+  return false;
+}
+
+async function loadRenderer() {
+  if (!mainWindow) return;
+
+  if (isDev) {
+    renderLoadingScreen('Waiting for the Next.js dev server on localhost:3000...');
+    const ready = await waitForDevServer(DEV_SERVER_URL, DEV_SERVER_TIMEOUT_MS);
+
+    if (!ready) {
+      renderLoadingScreen(
+        'The web app did not become ready in time. Keep `npm run dev` running and reload the Electron window once the site is available.'
+      );
+      return;
+    }
+
+    await mainWindow.loadURL(DEV_SERVER_URL);
+    mainWindow.webContents.openDevTools();
+    return;
+  }
+
+  await mainWindow.loadFile(path.join(__dirname, '../web-export/index.html'));
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1200,
@@ -90,15 +190,15 @@ function createWindow() {
     },
   });
 
-  // Load the web app
-  if (isDev) {
-    // Development: load from Next.js dev server
-    mainWindow.loadURL('http://localhost:3000');
-    mainWindow.webContents.openDevTools();
-  } else {
-    // Production: load the exported Next.js static files
-    mainWindow.loadFile(path.join(__dirname, '../web-export/index.html'));
-  }
+  mainWindow.webContents.on('did-fail-load', () => {
+    if (isDev) {
+      renderLoadingScreen(
+        'Relix could not load the web UI yet. The dev server may still be compiling. It will retry when the window is reopened.'
+      );
+    }
+  });
+
+  void loadRenderer();
 
   // Handle external links
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
