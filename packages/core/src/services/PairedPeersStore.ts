@@ -53,6 +53,35 @@ export class PairedPeersStore {
     return next;
   }
 
+  async touch(
+    peerId: string,
+    patch: Partial<PairedPeerMetadata> = {}
+  ): Promise<PairedPeerMetadata> {
+    const peers = await this.readAll();
+    const existing = peers.find((peer) => peer.peer_id === peerId);
+    const next: PairedPeerMetadata = {
+      peer_id: peerId,
+      first_paired_at: existing?.first_paired_at ?? nowSeconds(),
+      nickname: existing?.nickname,
+      last_seen_at: patch.last_seen_at ?? existing?.last_seen_at,
+      last_sync_at: patch.last_sync_at ?? existing?.last_sync_at,
+      last_connection_type: patch.last_connection_type ?? existing?.last_connection_type,
+    };
+
+    const changed =
+      !existing ||
+      existing.last_seen_at !== next.last_seen_at ||
+      existing.last_sync_at !== next.last_sync_at ||
+      existing.last_connection_type !== next.last_connection_type;
+
+    if (changed) {
+      const updated = [...peers.filter((peer) => peer.peer_id !== peerId), next];
+      await this.writeAll(updated.sort((a, b) => a.peer_id.localeCompare(b.peer_id)));
+    }
+
+    return next;
+  }
+
   async forget(peerId: string): Promise<void> {
     const peers = await this.readAll();
     await this.writeAll(peers.filter((peer) => peer.peer_id !== peerId));
@@ -64,7 +93,8 @@ export class PairedPeersStore {
 
     const merged: RemotePeer[] = await Promise.all(
       peers.map(async (peer) => {
-        const entry = await this.upsert(peer.id, {
+        const metadata = metadataMap.get(peer.id);
+        const entry = await this.touch(peer.id, {
           last_seen_at: peer.last_seen ?? nowSeconds(),
           last_sync_at: lastSyncAt,
           last_connection_type: peer.connection_type,
@@ -74,7 +104,7 @@ export class PairedPeersStore {
           ...peer,
           ...entry,
           is_connected: true,
-          display_name: entry.nickname || peer.name || peer.id,
+          display_name: metadata?.nickname || peer.name || peer.id,
         } satisfies RemotePeer;
       })
     );

@@ -28,11 +28,6 @@ export class NoteService {
 
     const note = await acorde.createEntry<NoteContent>('note', content, allTags);
 
-    // Update backlinks on target notes
-    for (const targetId of resolvedIds) {
-      await this.addBacklink(targetId, note.id);
-    }
-
     return note;
   }
 
@@ -75,14 +70,6 @@ export class NoteService {
 
     const note = await acorde.updateEntry<NoteContent>(id, content, allTags);
 
-    // Update backlinks
-    for (const targetId of added) {
-      await this.addBacklink(targetId, id);
-    }
-    for (const targetId of removed) {
-      await this.removeBacklink(targetId, id);
-    }
-
     return note;
   }
 
@@ -90,15 +77,6 @@ export class NoteService {
    * Delete a note
    */
   async delete(id: string): Promise<void> {
-    // Remove backlinks from targets
-    const note = await this.get(id);
-    const wikilinks = extractWikilinks(note.content.body);
-    const resolvedIds = await this.resolveTitlesToIds(wikilinks);
-    
-    for (const targetId of resolvedIds) {
-      await this.removeBacklink(targetId, id);
-    }
-
     await acorde.deleteEntry(id);
   }
 
@@ -185,34 +163,6 @@ export class NoteService {
     return Array.from(new Set(resolved));
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // Internal helpers
-  // ─────────────────────────────────────────────────────────────
-
-  private async addBacklink(targetId: string, sourceId: string): Promise<void> {
-    try {
-      const target = await this.get(targetId);
-      const tag = `backlink:${sourceId}`;
-      if (!target.tags.includes(tag)) {
-        await acorde.updateEntry(targetId, undefined, [...target.tags, tag]);
-      }
-    } catch {
-      // Target note doesn't exist yet - that's ok
-    }
-  }
-
-  private async removeBacklink(targetId: string, sourceId: string): Promise<void> {
-    try {
-      const target = await this.get(targetId);
-      const tag = `backlink:${sourceId}`;
-      const newTags = target.tags.filter((t) => t !== tag);
-      if (newTags.length !== target.tags.length) {
-        await acorde.updateEntry(targetId, undefined, newTags);
-      }
-    } catch {
-      // Target note doesn't exist - that's ok
-    }
-  }
 }
 
 export const noteService = new NoteService();

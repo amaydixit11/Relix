@@ -1,4 +1,4 @@
-import { useEffect, useSyncExternalStore, type ReactNode } from 'react';
+import { Fragment, createElement, useEffect, useSyncExternalStore, type ReactNode } from 'react';
 import { connectionService } from '../services/ConnectionService';
 
 export function ConnectionProvider({ children }: { children: ReactNode }) {
@@ -7,7 +7,7 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
     return () => connectionService.stop();
   }, []);
 
-  return children;
+  return createElement(Fragment, null, children);
 }
 
 export function useConnectionState() {
