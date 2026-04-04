@@ -1,25 +1,32 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ReactNode } from 'react';
 import { CommandPalette, QuickCapture } from '@/components';
 import { useRelixShortcuts, useKeyboardShortcuts } from '@/hooks';
+import { pluginManager, aiPlugin } from '@relix/plugins';
+
+import { UIProvider, useUI } from '@/context/UIContext';
+
+// Initialize plugins
+if (typeof window !== 'undefined') {
+  pluginManager.register(aiPlugin);
+  pluginManager.enable(aiPlugin.id).catch(console.error);
+}
 
 function GlobalShortcuts({ 
   children, 
-  onCommandPalette,
-  onQuickCapture,
 }: { 
   children: ReactNode; 
-  onCommandPalette: () => void;
-  onQuickCapture: () => void;
 }) {
-  useRelixShortcuts({ onCommandPalette });
+  const { setCommandPaletteOpen, setQuickCaptureOpen } = useUI();
+  
+  useRelixShortcuts({ onCommandPalette: () => setCommandPaletteOpen(true) });
   
   // Quick capture shortcut: Ctrl/Cmd + Shift + N
   useKeyboardShortcuts([
-    { key: 'n', mod: true, shift: true, callback: onQuickCapture },
+    { key: 'n', mod: true, shift: true, callback: () => setQuickCaptureOpen(true) },
   ]);
   
   return <>{children}</>;
@@ -38,25 +45,41 @@ export function Providers({ children }: { children: ReactNode }) {
       })
   );
 
-  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
-  const [quickCaptureOpen, setQuickCaptureOpen] = useState(false);
+  // Re-register plugins on mount to ensure client-side execution
+  useEffect(() => {
+    pluginManager.register(aiPlugin);
+    pluginManager.enable(aiPlugin.id).catch(console.error);
+  }, []);
 
   return (
     <QueryClientProvider client={queryClient}>
-      <GlobalShortcuts 
-        onCommandPalette={() => setCommandPaletteOpen(true)}
-        onQuickCapture={() => setQuickCaptureOpen(true)}
-      >
-        {children}
-        <CommandPalette 
-          isOpen={commandPaletteOpen} 
-          onClose={() => setCommandPaletteOpen(false)} 
-        />
-        <QuickCapture
-          isOpen={quickCaptureOpen}
-          onClose={() => setQuickCaptureOpen(false)}
-        />
-      </GlobalShortcuts>
+      <UIProvider>
+        <GlobalShortcuts>
+          {children}
+          <CommandPaletteWrapper />
+          <QuickCaptureWrapper />
+        </GlobalShortcuts>
+      </UIProvider>
     </QueryClientProvider>
+  );
+}
+
+function CommandPaletteWrapper() {
+  const { commandPaletteOpen, setCommandPaletteOpen } = useUI();
+  return (
+    <CommandPalette 
+      isOpen={commandPaletteOpen} 
+      onClose={() => setCommandPaletteOpen(false)} 
+    />
+  );
+}
+
+function QuickCaptureWrapper() {
+  const { quickCaptureOpen, setQuickCaptureOpen } = useUI();
+  return (
+    <QuickCapture
+      isOpen={quickCaptureOpen}
+      onClose={() => setQuickCaptureOpen(false)}
+    />
   );
 }
