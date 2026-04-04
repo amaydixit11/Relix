@@ -1,7 +1,7 @@
 import { View, Text, ScrollView, StyleSheet, ActivityIndicator, TextInput, TouchableOpacity, Alert, KeyboardAvoidingView, Platform } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { noteService } from '@relix/core';
+import { noteService, useConflictDetection } from '@relix/core';
 import { useState, useEffect } from 'react';
 import {
   drainMutationQueue,
@@ -52,6 +52,16 @@ export default function NoteScreen() {
       setEditBody(note.content.body);
     }
   }, [note]);
+
+  const hasLocalChanges =
+    Boolean(note) &&
+    (editTitle !== note?.content.title || editBody !== note?.content.body);
+
+  const { hasConflict, resetConflict } = useConflictDetection(id ?? '', {
+    baselineUpdatedAt: note?.updated_at,
+    hasLocalChanges,
+    suppress: isSaving,
+  });
 
   useEffect(() => {
     const loadQueueCount = async () => {
@@ -133,6 +143,24 @@ export default function NoteScreen() {
           }} 
         />
         <ScrollView contentContainerStyle={styles.editContent}>
+          {hasConflict ? (
+            <View style={styles.conflictBanner}>
+              <Text style={styles.conflictText}>
+                This note changed on another device while you have unsynced edits.
+              </Text>
+              <TouchableOpacity
+                onPress={async () => {
+                  if (!id) return;
+                  const latest = await fetchNote(id);
+                  setEditTitle(latest.content.title);
+                  setEditBody(latest.content.body);
+                  resetConflict();
+                }}
+              >
+                <Text style={styles.conflictAction}>Load Remote Copy</Text>
+              </TouchableOpacity>
+            </View>
+          ) : null}
           <TextInput
             style={styles.editTitleInput}
             value={editTitle}
@@ -253,6 +281,25 @@ const styles = StyleSheet.create({
     color: '#f59e0b',
     fontSize: 12,
     fontWeight: '600',
+  },
+  conflictBanner: {
+    backgroundColor: 'rgba(239, 68, 68, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.2)',
+    padding: 12,
+    borderRadius: 10,
+    marginBottom: 16,
+    gap: 8,
+  },
+  conflictText: {
+    color: '#fca5a5',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  conflictAction: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '700',
   },
   title: {
     fontSize: 32,

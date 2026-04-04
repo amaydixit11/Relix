@@ -13,6 +13,8 @@ import {
 
 const MUTATION_QUEUE_KEY = '@relix/mutation_queue';
 const NOTE_ALIAS_KEY = '@relix/note_aliases';
+const STUCK_MUTATIONS_KEY = '@relix/stuck_mutations';
+const MAX_MUTATION_ATTEMPTS = 5;
 
 type MutationKind = 'create' | 'update' | 'delete';
 
@@ -71,6 +73,22 @@ async function writeQueue(queue: QueuedMutation[]): Promise<void> {
   await AsyncStorage.setItem(MUTATION_QUEUE_KEY, JSON.stringify(queue));
 }
 
+async function readStuckMutations(): Promise<QueuedMutation[]> {
+  const raw = await AsyncStorage.getItem(STUCK_MUTATIONS_KEY);
+  if (!raw) return [];
+
+  try {
+    const parsed = JSON.parse(raw) as QueuedMutation[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+async function writeStuckMutations(queue: QueuedMutation[]): Promise<void> {
+  await AsyncStorage.setItem(STUCK_MUTATIONS_KEY, JSON.stringify(queue));
+}
+
 async function readAliases(): Promise<Record<string, string>> {
   const raw = await AsyncStorage.getItem(NOTE_ALIAS_KEY);
   if (!raw) return {};
@@ -126,6 +144,15 @@ export async function getQueuedMutations(): Promise<QueuedMutation[]> {
 export async function getQueueCount(): Promise<number> {
   const queue = await readQueue();
   return queue.length;
+}
+
+export async function getStuckMutationCount(): Promise<number> {
+  const stuck = await readStuckMutations();
+  return stuck.length;
+}
+
+export async function clearStuckMutations(): Promise<void> {
+  await writeStuckMutations([]);
 }
 
 export async function queueCreateNote(input: {
@@ -262,16 +289,19 @@ export async function queueDeleteNote(noteId: string): Promise<void> {
 export async function drainMutationQueue(): Promise<{
   processed: number;
   remaining: number;
+  stuck: number;
 }> {
   const queue = await readQueue();
   if (queue.length === 0) {
-    return { processed: 0, remaining: 0 };
+    return { processed: 0, remaining: 0, stuck: await getStuckMutationCount() };
   }
 
   const remaining: QueuedMutation[] = [];
+  const stuck = await readStuckMutations();
   let processed = 0;
+  let failedIndex = -1;
 
-  for (const item of queue) {
+  for (const [index, item] of queue.entries()) {
     try {
       if (item.kind === 'create') {
         const created = await noteService.create(
@@ -302,19 +332,28 @@ export async function drainMutationQueue(): Promise<{
 
       processed += 1;
     } catch {
-      remaining.push({
+      failedIndex = index;
+      const failed = {
         ...item,
         attempts: item.attempts + 1,
-      });
+      };
+
+      if (failed.attempts >= MAX_MUTATION_ATTEMPTS) {
+        stuck.push(failed);
+      } else {
+        remaining.push(failed);
+      }
       break;
     }
   }
 
-  const tail = queue.slice(processed + remaining.length);
+  const tail = failedIndex >= 0 ? queue.slice(failedIndex + 1) : queue.slice(processed);
   await writeQueue([...remaining, ...tail]);
+  await writeStuckMutations(stuck);
 
   return {
     processed,
     remaining: remaining.length + tail.length,
+    stuck: stuck.length,
   };
 }

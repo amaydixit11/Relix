@@ -16,6 +16,7 @@ import {
   useConnectionState,
 } from '@relix/core';
 import { BarCodeScanner } from 'expo-barcode-scanner';
+import { clearStuckMutations, getStuckMutationCount } from '../src/offline';
 
 export default function SettingsScreen() {
   const connection = useConnectionState();
@@ -27,6 +28,7 @@ export default function SettingsScreen() {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [editingPeerId, setEditingPeerId] = useState<string | null>(null);
   const [nicknameDraft, setNicknameDraft] = useState('');
+  const [stuckMutations, setStuckMutations] = useState(0);
 
   useEffect(() => {
     void AsyncStorage.getItem('@relix/server_url').then((url) => {
@@ -40,7 +42,13 @@ export default function SettingsScreen() {
       const { status } = await BarCodeScanner.requestPermissionsAsync();
       setHasPermission(status === 'granted');
     })();
+
+    void getStuckMutationCount().then(setStuckMutations);
   }, []);
+
+  useEffect(() => {
+    void getStuckMutationCount().then(setStuckMutations);
+  }, [connection.pendingChanges, connection.daemonReachable]);
 
   const saveBridge = async (url: string) => {
     setBridgeUrl(url);
@@ -215,7 +223,18 @@ export default function SettingsScreen() {
             value={String(connection.peers.filter((peer) => peer.is_connected).length)}
           />
           <InfoRow label="Pending Changes" value={String(connection.pendingChanges)} />
+          <InfoRow label="Stuck Mutations" value={String(stuckMutations)} />
           <InfoRow label="Reachability" value="Local network only" />
+          {stuckMutations > 0 ? (
+            <TouchableOpacity
+              style={styles.renameButton}
+              onPress={() => {
+                void clearStuckMutations().then(() => setStuckMutations(0));
+              }}
+            >
+              <Text style={styles.renameButtonText}>Clear Stuck Mutation Log</Text>
+            </TouchableOpacity>
+          ) : null}
         </Section>
       </ScrollView>
 

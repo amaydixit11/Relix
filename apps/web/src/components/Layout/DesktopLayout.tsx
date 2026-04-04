@@ -1,12 +1,15 @@
 import { ReactNode } from 'react';
 import { NavRail } from '../Sidebar/NavRail';
 import { FileTree } from '../FileTree/FileTree';
+import { useConnectionState } from '@relix/core';
 
 interface DesktopLayoutProps {
   children: ReactNode;
 }
 
 export function DesktopLayout({ children }: DesktopLayoutProps) {
+  const connection = useConnectionState();
+
   return (
     <div style={{ display: 'flex', height: '100vh', width: '100vw', overflow: 'hidden', background: '#0a0a0a' }}>
       {/* 1. Navigation Rail (Home, Graph, Settings) */}
@@ -49,8 +52,17 @@ export function DesktopLayout({ children }: DesktopLayoutProps) {
           color: 'var(--text-muted)',
           background: 'var(--bg-secondary)'
         }}>
-          <span>Sync: Online</span>
-          <span>{/* Word count or other stats */}</span>
+          <span>
+            Sync:{' '}
+            {connection.daemonReachable
+              ? connection.pendingChanges > 0
+                ? `${connection.pendingChanges} pending`
+                : connection.connectionType === 'relay'
+                  ? 'Relay'
+                  : 'Online'
+              : 'Offline'}
+          </span>
+          <span>{connection.peers.filter((peer) => peer.is_connected).length} peers</span>
         </div>
       </div>
     </div>
