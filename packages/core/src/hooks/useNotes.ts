@@ -16,7 +16,6 @@ export const noteKeys = {
   details: () => [...noteKeys.all, 'detail'] as const,
   detail: (id: string) => [...noteKeys.details(), id] as const,
   backlinks: (id: string) => [...noteKeys.all, 'backlinks', id] as const,
-  search: (query: string) => [...noteKeys.all, 'search', query] as const,
 };
 
 // ─────────────────────────────────────────────────────────────
@@ -54,18 +53,6 @@ export function useBacklinks(
     queryKey: noteKeys.backlinks(id),
     queryFn: () => noteService.getBacklinks(id),
     enabled: !!id,
-    ...options,
-  });
-}
-
-export function useNoteSearch(
-  query: string,
-  options?: Omit<UseQueryOptions<Note[]>, 'queryKey' | 'queryFn'>
-) {
-  return useQuery({
-    queryKey: noteKeys.search(query),
-    queryFn: () => noteService.search(query),
-    enabled: query.length >= 2,
     ...options,
   });
 }
