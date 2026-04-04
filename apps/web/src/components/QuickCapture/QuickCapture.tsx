@@ -46,19 +46,33 @@ export function QuickCapture({ isOpen, onClose, onSuccess }: QuickCaptureProps) 
   const handleSubmit = () => {
     if (!content.trim()) return;
 
-    // Extract title from first line or use timestamp
     const lines = content.split('\n');
-    let title = lines[0].replace(/^#\s*/, '').trim();
+    const firstLine = lines[0].trim();
     
-    if (!title || title.length < 2) {
-      title = `Quick Note - ${new Date().toLocaleTimeString()}`;
+    // Extract title
+    let title = firstLine.replace(/^#\s*/, '').trim();
+    let body = '';
+    
+    if (lines.length === 1) {
+      if (!title || title.length < 2) {
+        title = `Quick Note - ${new Date().toLocaleTimeString()}`;
+        body = content;
+      } else {
+        // One line is just the title
+        body = '';
+      }
+    } else {
+      // Multiple lines: first is title, rest is body
+      body = lines.slice(1).join('\n').trim();
+      if (!title || title.length < 2) {
+         title = `Quick Note - ${new Date().toLocaleTimeString()}`;
+         body = content; // Keep the whole thing in body if title is empty
+      }
     }
-
-    const body = lines.length > 1 ? lines.slice(1).join('\n').trim() : '';
 
     createNote.mutate({ 
       title, 
-      body: body || content,
+      body,
       tags: ['quick-capture'],
     });
   };

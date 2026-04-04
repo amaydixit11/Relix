@@ -10,10 +10,12 @@ import { pluginManager, aiPlugin } from '@relix/plugins';
 import { UIProvider, useUI } from '@/context/UIContext';
 
 // Initialize plugins
+/*
 if (typeof window !== 'undefined') {
   pluginManager.register(aiPlugin);
   pluginManager.enable(aiPlugin.id).catch(console.error);
 }
+*/
 
 function GlobalShortcuts({ 
   children, 
@@ -47,8 +49,8 @@ export function Providers({ children }: { children: ReactNode }) {
 
   // Re-register plugins on mount to ensure client-side execution
   useEffect(() => {
-    pluginManager.register(aiPlugin);
-    pluginManager.enable(aiPlugin.id).catch(console.error);
+    // pluginManager.register(aiPlugin);
+    // pluginManager.enable(aiPlugin.id).catch(console.error);
   }, []);
 
   return (

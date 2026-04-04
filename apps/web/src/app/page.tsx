@@ -10,6 +10,13 @@ export default function HomePage() {
   const { data: status } = useVaultStatus();
   const { data: notes, isLoading: notesLoading } = useNotes({ limit: 6 });
 
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return 'Good morning.';
+    if (hour < 17) return 'Good afternoon.';
+    return 'Good evening.';
+  };
+
   return (
     <PageLayout>
       {/* Dynamic Hero Section */}
@@ -42,7 +49,7 @@ export default function HomePage() {
           letterSpacing: '-2px',
           lineHeight: 1.1,
         }}>
-          Good evening.
+          {getGreeting()}
         </h1>
         <p style={{ 
           color: 'var(--text-secondary)', 

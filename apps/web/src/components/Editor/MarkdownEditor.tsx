@@ -187,12 +187,21 @@ export function MarkdownEditor({
     });
 
     const onClick = (e: MouseEvent) => {
-      const target = e.target as HTMLElement;
-      if (target.classList.contains('cm-wikilink') && onWikilinkClick) {
-        const text = target.innerText;
-        const idMatch = text.match(/\[\[([^\]]+)\]\]/);
-        if (idMatch) {
-          onWikilinkClick(idMatch[1].trim());
+      if (!viewRef.current || !onWikilinkClick) return;
+
+      const pos = viewRef.current.posAtDOM(e.target as Node);
+      const line = viewRef.current.state.doc.lineAt(pos);
+      const text = line.text;
+      
+      // Find which wikilink was clicked on this line
+      let match;
+      const regex = /\[\[([^\]]+)\]\]/g;
+      while ((match = regex.exec(text)) !== null) {
+        const start = line.from + match.index;
+        const end = start + match[0].length;
+        if (pos >= start && pos <= end) {
+          onWikilinkClick(match[1].trim());
+          break;
         }
       }
     };

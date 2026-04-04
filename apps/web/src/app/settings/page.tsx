@@ -1,13 +1,24 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { useVaultStatus, useHealthCheck, exportService, acorde } from '@relix/core';
+import { useVaultStatus, useHealthCheck, exportService, acorde, p2pService } from '@relix/core';
+import type { LocalIdentity, PeerInfo } from '@relix/core';
 import { PageLayout } from '@/components';
+import { QRCodeSVG } from 'qrcode.react';
 
 export default function SettingsPage() {
-  const { data: status } = useVaultStatus();
+  const { data: status, refetch: refetchStatus } = useVaultStatus();
   const { data: isHealthy } = useHealthCheck();
+  const [identity, setIdentity] = useState<LocalIdentity | null>(null);
+  const [peers, setPeers] = useState<PeerInfo[]>([]);
+
+  useEffect(() => {
+    if (isHealthy) {
+      p2pService.getLocalIdentity().then(setIdentity);
+      p2pService.getConnectedPeers().then(setPeers);
+    }
+  }, [isHealthy]);
 
   const handleExportMarkdown = async () => {
     try {
@@ -19,78 +30,73 @@ export default function SettingsPage() {
 
   return (
     <PageLayout>
-      <h1 style={{ fontSize: '1.75rem', fontWeight: 700, marginBottom: '2rem' }}>Settings</h1>
+      <h1 className="text-2xl font-bold mb-8">Settings</h1>
 
-      <div style={{ display: 'grid', gap: '2rem' }}>
-        {/* Status */}
-        <Section title="Sync Status">
+      <div className="grid gap-8 max-w-2xl">
+        {/* P2P Identity */}
+        <Section title="This Device">
+          {identity ? (
+            <div className="p-4 bg-black/20 rounded-lg border border-white/5 font-mono text-xs">
+              <div className="mb-2 flex justify-between">
+                <span className="text-zinc-500">PEER ID</span>
+                <span className="text-indigo-400">{identity.peer_id}</span>
+              </div>
+              <div className="flex flex-col gap-1">
+                <span className="text-zinc-500 mb-1">LOCAL ADDRESSES</span>
+                {identity.addrs.slice(0, 3).map((a, i) => (
+                  <div key={i} className="text-zinc-400 opacity-60 overflow-hidden whitespace-nowrap text-ellipsis">
+                    {a}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <p className="text-zinc-500 text-sm">Not connected to daemon</p>
+          )}
+        </Section>
+
+        {/* Sync Status */}
+        <Section title="Fleet Status">
           <StatusRow 
-            label="ACORDE Daemon" 
-            value={isHealthy ? 'Connected' : 'Disconnected'} 
+            label="Daemon" 
+            value={isHealthy ? 'Online' : 'Offline'} 
             status={isHealthy ? 'success' : 'error'} 
           />
           {status && (
             <>
-              <StatusRow label="Total Notes" value={String(status.entries_count || 0)} />
-              <StatusRow label="Active Peers" value={String(status.peers || 0)} />
-              <StatusRow 
-                label="Last Sync" 
-                value={status.last_sync ? new Date(status.last_sync).toLocaleString() : 'Never'} 
-              />
+              <StatusRow label="Local Vault" value={String(status.entries_count || 0) + ' notes'} />
+              <StatusRow label="Active Peers" value={String(peers.length || 0)} />
             </>
           )}
         </Section>
 
-        {/* Vault */}
-        <Section title="Vault Configuration">
-          {status && (
-            <StatusRow label="Local Path" value={status.path || '~/.relix'} />
-          )}
-          <StatusRow label="Encryption" value="Enabled (AES-256)" status="success" />
-        </Section>
-
         {/* Sync & Pairing */}
-        <Section title="P2P Mesh & Pairing">
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            <div style={{ padding: '0.5rem 0' }}>
-              <h3 style={{ fontSize: '0.9rem', marginBottom: '0.5rem' }}>Invite a new device</h3>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', marginBottom: '1rem' }}>
-                Generate a secure invite code to connect another system to your garden.
-              </p>
-              <InviteAction />
-            </div>
+        <Section title="Pair New Device">
+          <p className="text-sm text-zinc-400 mb-6">
+            Generate an invite to peer other Relix instances. This allows seamless E2E encrypted sync over local networks or global relays.
+          </p>
+          
+          <div className="grid gap-8">
+            <InviteAction />
             
-            <div style={{ borderTop: '1px solid var(--border)', paddingTop: '1rem' }}>
-              <h3 style={{ fontSize: '0.9rem', marginBottom: '0.5rem' }}>Join an existing mesh</h3>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', marginBottom: '1rem' }}>
-                Enter an invite code from another device to pair them.
-              </p>
-              <PairAction />
+            <div className="pt-6 border-t border-white/5">
+              <h3 className="text-sm font-semibold mb-3">Join Remote Mesh</h3>
+              <PairAction onSuccess={refetchStatus} />
             </div>
           </div>
         </Section>
 
         {/* Export */}
-        <Section title="Data Management">
-          <div style={{ padding: '0.5rem 0' }}>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '1rem' }}>
-              Download your entire digital garden as standard Markdown files.
-            </p>
-            <button onClick={handleExportMarkdown} style={{ width: '100%', justifyContent: 'center' }}>
-              Export All Notes (ZIP)
-            </button>
-          </div>
-        </Section>
-
-        {/* Shortcuts */}
-        <Section title="Keyboard Shortcuts">
-          <div style={{ display: 'grid', gap: '0.75rem' }}>
-            <Shortcut label="Command Palette" keys={['⌘', 'K']} />
-            <Shortcut label="New Note" keys={['⌘', 'N']} />
-            <Shortcut label="Quick Capture" keys={['⌘', '⇧', 'N']} />
-            <Shortcut label="Graph View" keys={['⌘', 'G']} />
-            <Shortcut label="Save Note" keys={['⌘', 'S']} />
-          </div>
+        <Section title="Data Export">
+          <p className="text-sm text-zinc-400 mb-4">
+            Relix is your data. Export your entire library as standard Markdown with YAML frontmatter anytime.
+          </p>
+          <button 
+            onClick={handleExportMarkdown} 
+            className="w-full py-3 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg transition-colors font-semibold"
+          >
+            Export as ZIP
+          </button>
         </Section>
       </div>
     </PageLayout>
@@ -114,28 +120,47 @@ function InviteAction() {
   };
 
   return (
-    <div>
+    <div className="flex flex-col gap-4">
       {!invite ? (
-        <button onClick={handleInvite} disabled={loading}>
-          {loading ? 'Generating...' : 'Generate Invite Link'}
+        <button 
+          onClick={handleInvite} 
+          disabled={loading}
+          className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg transition-colors font-semibold shadow-lg shadow-indigo-500/20"
+        >
+          {loading ? 'Generating...' : 'Invite to Fleet'}
         </button>
       ) : (
-        <div style={{ background: 'var(--bg-tertiary)', padding: '1rem', borderRadius: '8px', border: '1px solid var(--accent)' }}>
-          <p style={{ fontSize: '0.75rem', color: 'var(--accent)', marginBottom: '0.5rem' }}>Invite Code:</p>
-          <code style={{ fontSize: '0.8rem', wordBreak: 'break-all' }}>{invite}</code>
-          <button 
-            onClick={() => { navigator.clipboard.writeText(invite); alert('Copied!'); }}
-            style={{ marginTop: '0.75rem', fontSize: '0.75rem', padding: '4px 8px' }}
-          >
-            Copy Code
-          </button>
+        <div className="p-6 bg-zinc-900 ring-1 ring-white/10 rounded-xl overflow-hidden shadow-2xl">
+          <div className="flex flex-col md:flex-row gap-6 items-center">
+            <div className="bg-white p-4 rounded-lg">
+              <QRCodeSVG 
+                value={invite} 
+                size={160}
+                level="M"
+                includeMargin={false}
+              />
+            </div>
+            <div className="flex-1 text-center md:text-left">
+              <h4 className="text-white font-bold mb-1">Device Invite Code</h4>
+              <p className="text-xs text-zinc-500 mb-4 font-mono break-all">{invite.slice(0, 32)}...</p>
+              <button 
+                onClick={() => { navigator.clipboard.writeText(invite); alert('Copied!'); }}
+                className="px-4 py-2 bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 rounded-lg text-sm hover:bg-indigo-600/30 transition-colors"
+              >
+                Copy Full Code
+              </button>
+            </div>
+          </div>
+          <p className="mt-6 text-[10px] text-zinc-600 uppercase tracking-widest text-center">
+            Valid for 24 hours • AES-256 Secured
+          </p>
         </div>
       )}
     </div>
   );
 }
 
-function PairAction() {
+function PairAction({ onSuccess }: { onSuccess: () => void }) {
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -145,7 +170,7 @@ function PairAction() {
     try {
       await acorde.pairDevice(code);
       alert('Device paired successfully!');
-      window.location.reload(); // Refresh status
+      onSuccess();
     } catch (err) {
       alert('Pairing failed: ' + (err as Error).message);
     } finally {
@@ -154,16 +179,20 @@ function PairAction() {
   };
 
   return (
-    <div style={{ display: 'flex', gap: '0.5rem' }}>
+    <div className="flex gap-2">
       <input 
         type="text" 
         value={code} 
         onChange={e => setCode(e.target.value)} 
-        placeholder="Paste invite code here..."
-        style={{ flex: 1, fontSize: '0.85rem' }}
+        placeholder="v1.p2p.invite.xxx..."
+        className="flex-1 bg-zinc-900 border border-white/10 rounded-lg px-4 py-2 text-sm focus:ring-1 focus:ring-indigo-500 outline-none transition-shadow"
       />
-      <button onClick={handlePair} disabled={loading || !code}>
-        {loading ? 'Pairing...' : 'Join Mesh'}
+      <button 
+        onClick={handlePair} 
+        disabled={loading || !code}
+        className="px-6 py-2 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-white rounded-lg transition-colors text-sm font-semibold border border-white/5"
+      >
+        {loading ? 'Pairing...' : 'Join'}
       </button>
     </div>
   );
@@ -171,23 +200,11 @@ function PairAction() {
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section style={{ 
-      background: 'var(--bg-secondary)',
-      borderRadius: '8px',
-      border: '1px solid var(--border)',
-      padding: '1.5rem',
-    }}>
-      <h2 style={{ 
-        fontSize: '1rem', 
-        fontWeight: 600, 
-        marginBottom: '1rem', 
-        color: 'var(--text-primary)',
-        paddingBottom: '0.75rem',
-        borderBottom: '1px solid var(--border)',
-      }}>
+    <section className="bg-zinc-900/50 rounded-xl border border-white/5 p-6 backdrop-blur-sm">
+      <h2 className="text-sm font-bold text-zinc-500 uppercase tracking-wider mb-6 pb-2 border-b border-white/5">
         {title}
       </h2>
-      <div style={{ display: 'flex', flexDirection: 'column' }}>
+      <div>
         {children}
       </div>
     </section>
@@ -195,39 +212,11 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 function StatusRow({ label, value, status }: { label: string; value: string; status?: 'success' | 'warning' | 'error' }) {
-  const color = status === 'success' ? 'var(--success)' : status === 'error' ? 'var(--error)' : 'var(--text-primary)';
+  const statusColor = status === 'success' ? 'text-emerald-400' : status === 'error' ? 'text-rose-400' : 'text-zinc-200';
   return (
-    <div style={{ 
-      display: 'flex', 
-      justifyContent: 'space-between', 
-      padding: '0.75rem 0', 
-      borderBottom: '1px solid var(--border-light)',
-      fontSize: '0.9rem',
-    }}>
-      <span style={{ color: 'var(--text-secondary)' }}>{label}</span>
-      <span style={{ color, fontFamily: 'var(--font-mono)' }}>{value}</span>
-    </div>
-  );
-}
-
-function Shortcut({ label, keys }: { label: string; keys: string[] }) {
-  return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-      <span style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>{label}</span>
-      <div style={{ display: 'flex', gap: '0.25rem' }}>
-        {keys.map(k => (
-          <kbd key={k} style={{
-            background: 'var(--bg-tertiary)',
-            border: '1px solid var(--border)',
-            borderRadius: '4px',
-            padding: '2px 6px',
-            fontSize: '0.75rem',
-            fontFamily: 'var(--font-mono)',
-            minWidth: '20px',
-            textAlign: 'center',
-          }}>{k}</kbd>
-        ))}
-      </div>
+    <div className="flex justify-between py-3 border-b border-white/[0.03] text-sm">
+      <span className="text-zinc-500">{label}</span>
+      <span className={`font-mono ${statusColor}`}>{value}</span>
     </div>
   );
 }
