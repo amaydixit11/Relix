@@ -57,11 +57,6 @@ export class Benchmark {
       const notes = await noteService.list();
       console.log(`\nListed ${notes.length} notes`);
     });
-
-    await this.measure('search-term', async () => {
-      const results = await noteService.search('Lorem');
-      console.log(`\nFound ${results.length} results for 'Lorem'`);
-    });
   }
 
   /**
