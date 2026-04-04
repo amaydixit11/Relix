@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useCallback } from 'react';
 import { EditorState, StateEffect, StateField } from '@codemirror/state';
-import { EditorView, keymap, Decoration, DecorationSet, ViewPlugin, ViewUpdate } from '@codemirror/view';
+import { EditorView, keymap, Decoration, DecorationSet, ViewPlugin, ViewUpdate, placeholder as cmPlaceholder } from '@codemirror/view';
 import { markdown } from '@codemirror/lang-markdown';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { oneDark } from '@codemirror/theme-one-dark';
@@ -70,6 +70,11 @@ const editorTheme = EditorView.theme({
     backgroundColor: 'rgba(99, 102, 241, 0.1)',
     borderRadius: '3px',
     padding: '1px 2px',
+    cursor: 'pointer',
+    transition: 'background-color 0.2s',
+  },
+  '.cm-wikilink:hover': {
+    backgroundColor: 'rgba(99, 102, 241, 0.2)',
   },
   '.cm-scroller': {
     overflow: 'auto',
@@ -81,9 +86,9 @@ const editorTheme = EditorView.theme({
 
 // Highlight style
 const highlightStyle = HighlightStyle.define([
-  { tag: tags.heading1, fontSize: '1.5em', fontWeight: 'bold' },
-  { tag: tags.heading2, fontSize: '1.3em', fontWeight: 'bold' },
-  { tag: tags.heading3, fontSize: '1.15em', fontWeight: 'bold' },
+  { tag: tags.heading1, fontSize: '1.5em', fontWeight: 'bold', color: 'var(--text-primary)' },
+  { tag: tags.heading2, fontSize: '1.3em', fontWeight: 'bold', color: 'var(--text-primary)' },
+  { tag: tags.heading3, fontSize: '1.15em', fontWeight: 'bold', color: 'var(--text-primary)' },
   { tag: tags.emphasis, fontStyle: 'italic' },
   { tag: tags.strong, fontWeight: 'bold' },
   { tag: tags.link, color: '#6366f1' },
@@ -94,6 +99,7 @@ const highlightStyle = HighlightStyle.define([
 interface MarkdownEditorProps {
   value: string;
   onChange?: (value: string) => void;
+  onWikilinkClick?: (id: string) => void;
   placeholder?: string;
   className?: string;
   readonly?: boolean;
@@ -102,6 +108,7 @@ interface MarkdownEditorProps {
 export function MarkdownEditor({ 
   value, 
   onChange, 
+  onWikilinkClick,
   placeholder = 'Write in markdown...',
   className = '',
   readonly = false,
@@ -129,7 +136,43 @@ export function MarkdownEditor({
       extensions: [
         markdown(),
         history(),
-        keymap.of([...defaultKeymap, ...historyKeymap]),
+        keymap.of([
+          ...defaultKeymap, 
+          ...historyKeymap,
+          {
+            key: 'Mod-b',
+            run: (view) => {
+              const { from, to } = view.state.selection.main;
+              view.dispatch({
+                changes: { from, to, insert: `**${view.state.sliceDoc(from, to)}**` },
+                selection: { anchor: from + 2, head: to + 2 }
+              });
+              return true;
+            }
+          },
+          {
+            key: 'Mod-i',
+            run: (view) => {
+              const { from, to } = view.state.selection.main;
+              view.dispatch({
+                changes: { from, to, insert: `_${view.state.sliceDoc(from, to)}_` },
+                selection: { anchor: from + 1, head: to + 1 }
+              });
+              return true;
+            }
+          },
+          {
+            key: 'Mod-l', // mod-l for link
+            run: (view) => {
+              const { from, to } = view.state.selection.main;
+              view.dispatch({
+                changes: { from, to, insert: `[[${view.state.sliceDoc(from, to)}]]` },
+                selection: { anchor: from + 2, head: to + 2 }
+              });
+              return true;
+            }
+          }
+        ]),
         oneDark,
         editorTheme,
         syntaxHighlighting(highlightStyle),
@@ -139,8 +182,22 @@ export function MarkdownEditor({
         EditorState.tabSize.of(2),
         EditorState.readOnly.of(readonly),
         EditorView.editable.of(!readonly),
+        cmPlaceholder(placeholder),
       ],
     });
+
+    const onClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.classList.contains('cm-wikilink') && onWikilinkClick) {
+        const text = target.innerText;
+        const idMatch = text.match(/\[\[([^\]]+)\]\]/);
+        if (idMatch) {
+          onWikilinkClick(idMatch[1].trim());
+        }
+      }
+    };
+
+    containerRef.current.addEventListener('click', onClick);
 
     const view = new EditorView({
       state,
@@ -150,6 +207,9 @@ export function MarkdownEditor({
     viewRef.current = view;
 
     return () => {
+      if (containerRef.current) {
+        containerRef.current.removeEventListener('click', onClick);
+      }
       view.destroy();
       viewRef.current = null;
     };
