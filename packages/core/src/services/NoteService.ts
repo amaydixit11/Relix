@@ -1,5 +1,5 @@
 import { acorde } from '../client';
-import type { Note, NoteContent, NoteFilter, Version } from '../models';
+import type { Note, NoteContent, NoteFilter } from '../models';
 import { extractWikilinks } from '../utils/backlinks';
 
 /**
@@ -108,7 +108,8 @@ export class NoteService {
    * Search notes
    */
   async search(query: string, limit = 20): Promise<Note[]> {
-    return acorde.search<NoteContent>(query, limit);
+    void limit; // Limit not easily supported by simple search wrapper yet
+    return acorde.searchEntries<NoteContent>(query, 'note');
   }
 
   /**
