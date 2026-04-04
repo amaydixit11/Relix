@@ -33,3 +33,15 @@ coverage/
 
 # Misc
 *.tsbuildinfo
+digest.txt
+
+# ACORDE and Relix binaries/data
+/acorde
+/acorde-data/
+/data/
+/acorde-node-*/
+/libp2p-*/
+libp2p.key
+acorde.key
+*.db
+*.db-*
