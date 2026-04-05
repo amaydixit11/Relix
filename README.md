@@ -22,14 +22,14 @@
 
 ```
 apps/
-├── web/       # Next.js 14 (primary)
-├── desktop/   # Electron (coming soon)
-└── mobile/    # Expo (coming soon)
+├── frontend/      # Flutter app for web, desktop, and mobile
+├── web/           # Legacy Next.js client
+├── desktop/       # Legacy Electron shell
+└── mobile/        # Legacy Expo app
 
 packages/
-├── core/      # ACORDE client + services
-├── ui/        # Shared components
-└── storage/   # Local preferences
+├── core/          # Legacy TypeScript client package
+└── plugins/       # Legacy TypeScript plugin package
 ```
 
 ## 🚀 Getting Started
@@ -41,7 +41,8 @@ packages/
    acorde daemon --api-port 7331
    ```
 
-2. **Node.js 18+**
+2. **Flutter 3.41+**
+3. **Node.js 18+** for legacy tooling still present in the repo
 
 ### Acorde Dependency
 
@@ -53,38 +54,56 @@ acorde daemon --api-port 7331
 
 Relix talks to `http://localhost:7331` by default.
 
-### Setup
+### Flutter Setup
 
 ```bash
-# Install dependencies
-npm install
-
-# Start development server
-npm run dev
+# Start ACORDE + Flutter web
+./start-all.sh
 ```
 
-Open [http://localhost:3000](http://localhost:3000)
+Or run Flutter directly:
+
+```bash
+cd frontend
+flutter pub get
+flutter run -d chrome
+```
+
+For desktop targets, replace `chrome` with `linux`, `windows`, or `macos`.
+For mobile targets, use a connected emulator/device or `flutter run -d android` / `flutter run -d ios`.
 
 ## 📦 Tech Stack
 
 | Layer | Technology |
 |-------|------------|
-| Web | Next.js 14 |
-| Desktop | Electron |
-| Mobile | Expo |
-| State | React Query |
+| App | Flutter |
+| Web | Flutter Web |
+| Desktop | Flutter Desktop |
+| Mobile | Flutter Mobile |
 | Backend | ACORDE |
-| Monorepo | Turborepo |
+| Legacy Workspace | Turborepo |
+
+## 📚 Documentation
+
+- [Documentation Index](./docs/DOCUMENTATION_INDEX.md)
+- [Product Vision](./docs/PRODUCT_VISION.md)
+- [Features And Requirements](./docs/FEATURES_AND_REQUIREMENTS.md)
+- [Flutter Frontend Architecture](./docs/FLUTTER_FRONTEND_ARCHITECTURE.md)
+- [Sync And Pairing Model](./docs/SYNC_AND_PAIRING_MODEL.md)
+- [UI / UX Requirements](./docs/UI_UX_REQUIREMENTS.md)
+- [Screen Specification](./docs/SCREEN_SPECIFICATION.md)
 
 ## 🗺️ Roadmap
 
 - [x] Core package (ACORDE client + services)
-- [x] Web app (notes CRUD)
+- [x] Flutter notes CRUD client
+- [x] Flutter settings / pairing UI
+- [x] Flutter offline cache + mutation queue
 - [ ] Markdown editor (CodeMirror)
 - [ ] Graph visualization (D3)
 - [ ] PDF viewer
-- [ ] Desktop app (Electron)
-- [ ] Mobile app (Expo)
+- [ ] Native QR scanning in Flutter
+- [ ] Verified relay-backed internet sync
 
 ## 📄 License
 
