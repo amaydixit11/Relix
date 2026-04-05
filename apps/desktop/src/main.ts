@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell, dialog } from 'electron';
+import { app, BrowserWindow, shell, dialog, ipcMain } from 'electron';
 import * as path from 'path';
 import { spawn, type ChildProcessWithoutNullStreams } from 'child_process';
 import { existsSync, createWriteStream, mkdirSync } from 'fs';
@@ -9,11 +9,40 @@ const DEFAULT_ACORDE_PORT = process.env.RELIX_ACORDE_PORT ?? '4001';
 const DEV_SERVER_URL = process.env.RELIX_WEB_URL ?? 'http://localhost:3000';
 const DEV_SERVER_TIMEOUT_MS = 30000;
 const DEV_SERVER_POLL_MS = 500;
+const DAEMON_HEALTH_POLL_MS = 5000;
 
 let mainWindow: BrowserWindow | null = null;
 let acordeProcess: ChildProcessWithoutNullStreams | null = null;
 let acordeRestarted = false;
 let isAppQuitting = false;
+let daemonHealthTimer: NodeJS.Timeout | null = null;
+let daemonStatus: 'starting' | 'healthy' | 'degraded' | 'missing-binary' = 'starting';
+let daemonStatusMessage = 'Starting ACORDE daemon';
+
+function getAcordeLogPath() {
+  return path.join(app.getPath('userData'), 'acorde-data', 'acorde.log');
+}
+
+function getDaemonStatus() {
+  return {
+    status: daemonStatus,
+    message: daemonStatusMessage,
+    apiUrl: `http://localhost:${DEFAULT_ACORDE_API_PORT}`,
+    logPath: getAcordeLogPath(),
+  };
+}
+
+function updateDaemonStatus(
+  status: typeof daemonStatus,
+  message: string,
+) {
+  daemonStatus = status;
+  daemonStatusMessage = message;
+  if (mainWindow) {
+    mainWindow.setTitle(`Relix [${status}]`);
+    mainWindow.webContents.send('daemon-status', getDaemonStatus());
+  }
+}
 
 function resolveAcordeBinary() {
   const candidates = [
@@ -31,6 +60,10 @@ function startAcordeDaemon() {
 
   const binary = resolveAcordeBinary();
   if (!binary) {
+    updateDaemonStatus(
+      'missing-binary',
+      'ACORDE binary not found. Set ACORDE_BIN or place the binary in the project root.',
+    );
     dialog.showErrorBox(
       'ACORDE Binary Missing',
       'Relix could not find the ACORDE daemon binary. Set ACORDE_BIN or place the acorde binary in the project root.'
@@ -43,6 +76,7 @@ function startAcordeDaemon() {
 
   const logFile = path.join(dataDir, 'acorde.log');
   const logStream = createWriteStream(logFile, { flags: 'a' });
+  updateDaemonStatus('starting', `Launching ACORDE from ${binary}`);
 
   acordeProcess = spawn(
     binary,
@@ -65,6 +99,12 @@ function startAcordeDaemon() {
 
   acordeProcess.on('exit', () => {
     acordeProcess = null;
+    updateDaemonStatus(
+      isAppQuitting ? 'degraded' : 'starting',
+      isAppQuitting
+        ? 'ACORDE daemon stopped during app shutdown.'
+        : 'ACORDE daemon exited unexpectedly. Attempting one restart.',
+    );
     if (!isAppQuitting && !acordeRestarted) {
       acordeRestarted = true;
       startAcordeDaemon();
@@ -78,8 +118,46 @@ function stopAcordeDaemon() {
   acordeProcess = null;
 }
 
+async function pollDaemonHealth() {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 1500);
+    const response = await fetch(`http://localhost:${DEFAULT_ACORDE_API_PORT}/status`, {
+      method: 'GET',
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+
+    if (response.ok) {
+      updateDaemonStatus('healthy', 'ACORDE daemon reachable.');
+      return;
+    }
+
+    updateDaemonStatus('degraded', `ACORDE status probe failed with ${response.status}.`);
+  } catch {
+    updateDaemonStatus('degraded', 'ACORDE daemon is not responding to /status.');
+  }
+}
+
+function startDaemonHealthMonitor() {
+  daemonHealthTimer?.unref?.();
+  if (daemonHealthTimer) clearInterval(daemonHealthTimer);
+  daemonHealthTimer = setInterval(() => {
+    void pollDaemonHealth();
+  }, DAEMON_HEALTH_POLL_MS);
+  void pollDaemonHealth();
+}
+
+function stopDaemonHealthMonitor() {
+  if (daemonHealthTimer) {
+    clearInterval(daemonHealthTimer);
+    daemonHealthTimer = null;
+  }
+}
+
 function renderLoadingScreen(message: string) {
   if (!mainWindow) return;
+  const daemon = getDaemonStatus();
 
   const html = `
     <!doctype html>
@@ -115,12 +193,24 @@ function renderLoadingScreen(message: string) {
             color: #a1a1aa;
             line-height: 1.5;
           }
+          code {
+            display: block;
+            margin-top: 16px;
+            padding: 10px 12px;
+            border-radius: 10px;
+            background: rgba(255,255,255,0.04);
+            color: #d4d4d8;
+            overflow-wrap: anywhere;
+          }
         </style>
       </head>
       <body>
         <div class="wrap">
           <h1>Starting Relix</h1>
           <p>${message}</p>
+          <code>Daemon: ${daemon.status}
+${daemon.message}
+Log: ${daemon.logPath}</code>
         </div>
       </body>
     </html>
@@ -211,8 +301,18 @@ function createWindow() {
   });
 }
 
+function registerIpcHandlers() {
+  ipcMain.handle('get-version', () => app.getVersion());
+  ipcMain.handle('get-daemon-status', () => getDaemonStatus());
+  ipcMain.handle('get-daemon-log-path', () => getAcordeLogPath());
+  ipcMain.handle('open-file', async () => null);
+  ipcMain.handle('save-file', async () => null);
+}
+
 app.whenReady().then(() => {
+  registerIpcHandlers();
   startAcordeDaemon();
+  startDaemonHealthMonitor();
   createWindow();
 });
 
@@ -230,6 +330,7 @@ app.on('activate', () => {
 
 app.on('before-quit', () => {
   isAppQuitting = true;
+  stopDaemonHealthMonitor();
   stopAcordeDaemon();
 });
 
