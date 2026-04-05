@@ -105,7 +105,7 @@ class RelixController extends ChangeNotifier {
             .catchError((_) => null),
         _client.getPeers().catchError((_) => <RemotePeer>[]),
         _client.getStatus().catchError((_) => <String, dynamic>{}),
-        _client.listNotes().catchError((_) => <NoteEntry>[]),
+        _client.listEntries().catchError((_) => <NoteEntry>[]),
       ]);
 
       final identity = results[0] as LocalIdentity?;
@@ -230,6 +230,8 @@ class RelixController extends ChangeNotifier {
                   content: NoteContent(title: title, body: body),
                   tags: tags,
                   updatedAt: _unixNow(),
+                  baselineUpdatedAt:
+                      note.baselineUpdatedAt ?? note.updatedAt,
                   pendingSync: true,
                 )
               : note,
@@ -252,6 +254,24 @@ class RelixController extends ChangeNotifier {
 
   Future<List<NoteEntry>> getBacklinks(String id) => _note.getBacklinks(id);
 
+  Future<List<NoteEntry>> searchEntries(String query, {String? type}) =>
+      _note.search(query, type: type);
+
+  Future<List<NoteEntry>> listFiles() => _file.listFiles();
+
+  Future<NoteEntry?> uploadFile() async {
+    final created = await _file.pickAndUpload();
+    if (created != null) {
+      await refresh();
+    }
+    return created;
+  }
+
+  Future<void> shareFile(NoteEntry entry) async {
+    if (entry.content is! FileContent) return;
+    await _file.shareFile(entry.content as FileContent);
+  }
+
   Future<void> deleteNote(String id) async {
     final notes = _snapshot.notes.where((note) => note.id != id).toList();
     await _store.writeNotes(notes);
@@ -263,10 +283,29 @@ class RelixController extends ChangeNotifier {
 
   Future<NoteEntry?> fetchLatestRemoteNote(String id) async {
     try {
-      return await _client.getNote(id);
+      final latest = await _client.getNote(id);
+      return latest.copyWith(baselineUpdatedAt: latest.updatedAt);
     } catch (_) {
       return null;
     }
+  }
+
+  Future<void> applyRemoteNote(NoteEntry remote) async {
+    final notes = _snapshot.notes
+        .map(
+          (note) => note.id == remote.id
+              ? remote.copyWith(
+                  pendingSync: false,
+                  baselineUpdatedAt: remote.updatedAt,
+                )
+              : note,
+        )
+        .toList()
+      ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+
+    await _store.writeNotes(notes);
+    _snapshot = _snapshot.copyWith(notes: notes, errorMessage: null);
+    notifyListeners();
   }
 
   Future<void> _enqueueMutation(MutationPayload mutation) async {
@@ -299,8 +338,11 @@ class RelixController extends ChangeNotifier {
               mutation.body ?? '',
               tags: mutation.tags,
             );
+            final normalized = created.copyWith(
+              baselineUpdatedAt: created.updatedAt,
+            );
             notes = notes
-                .map((note) => note.id == mutation.noteId ? created : note)
+                .map((note) => note.id == mutation.noteId ? normalized : note)
                 .toList();
           } else if (mutation.type == 'update') {
             final updated = await _note.update(
@@ -309,8 +351,11 @@ class RelixController extends ChangeNotifier {
               body: mutation.body,
               tags: mutation.tags,
             );
+            final normalized = updated.copyWith(
+              baselineUpdatedAt: updated.updatedAt,
+            );
             notes = notes
-                .map((note) => note.id == mutation.noteId ? updated : note)
+                .map((note) => note.id == mutation.noteId ? normalized : note)
                 .toList();
           } else if (mutation.type == 'delete') {
             await _client.deleteNote(mutation.noteId);
@@ -364,6 +409,7 @@ class RelixController extends ChangeNotifier {
           tags: mutation.tags,
           createdAt: mutation.createdAt ?? _unixNow(),
           updatedAt: mutation.createdAt ?? _unixNow(),
+          baselineUpdatedAt: null,
           deleted: false,
           owner: '',
           pendingSync: true,
@@ -376,6 +422,7 @@ class RelixController extends ChangeNotifier {
               title: mutation.title ?? (existing.content as NoteContent).title,
               body: mutation.body ?? (existing.content as NoteContent).body,
             ),
+            baselineUpdatedAt: existing.baselineUpdatedAt ?? existing.updatedAt,
             pendingSync: true,
           );
         }

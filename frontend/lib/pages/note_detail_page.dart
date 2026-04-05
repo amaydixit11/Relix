@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models.dart';
 import '../services/relix_controller.dart';
-import '../widgets/glass_card.dart';
 import 'note_editor_page.dart';
 
 class NoteDetailPage extends StatefulWidget {
@@ -21,6 +20,8 @@ class NoteDetailPage extends StatefulWidget {
 class _NoteDetailPageState extends State<NoteDetailPage> {
   bool _checking = false;
   bool _hasConflict = false;
+  String _searchQuery = '';
+  NoteEntry? _remoteConflict;
 
   @override
   Widget build(BuildContext context) {
@@ -101,15 +102,11 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
                 _Banner(
                   color: Colors.orangeAccent,
                   text: 'Conflict: Remote modification detected.',
-                  actionLabel: 'Refresh',
+                  actionLabel: 'Review',
                   icon: Icons.priority_high_rounded,
-                  onAction: () async {
-                    final latest = await widget.controller
-                        .fetchLatestRemoteNote(widget.noteId);
-                    if (latest != null && mounted) {
-                      setState(() => _hasConflict = false);
-                    }
-                  },
+                  onAction: _remoteConflict == null
+                      ? null
+                      : () => _reviewConflict(_remoteConflict!),
                 ),
 
               Text(
@@ -151,13 +148,31 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
                 ],
               ),
               const SizedBox(height: 32),
+              TextField(
+                onChanged: (value) => setState(() => _searchQuery = value),
+                decoration: const InputDecoration(
+                  hintText: 'SEARCH_WITHIN_NOTE...',
+                  prefixIcon: Icon(Icons.search_rounded, size: 18),
+                ),
+              ),
+              const SizedBox(height: 20),
 
-              SelectableText(
-                noteContent.body,
-                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                  color: Colors.white70,
-                  height: 1.6,
-                  fontSize: 17,
+              SelectableText.rich(
+                TextSpan(
+                  children: _highlightMatches(
+                    noteContent.body,
+                    _searchQuery,
+                    Theme.of(context).textTheme.bodyLarge?.copyWith(
+                          color: Colors.white70,
+                          height: 1.6,
+                          fontSize: 17,
+                        ) ??
+                        const TextStyle(
+                          color: Colors.white70,
+                          height: 1.6,
+                          fontSize: 17,
+                        ),
+                  ),
                 ),
               ),
               const SizedBox(height: 48),
@@ -190,16 +205,172 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     setState(() => _checking = true);
     final latest = await widget.controller.fetchLatestRemoteNote(widget.noteId);
     if (mounted) {
-      if (latest != null &&
-          latest.updatedAt > (widget.controller.snapshot.lastSyncAt ?? 0)) {
+      if (latest != null && latest.updatedAt > _currentBaseline()) {
         _hasConflict = true;
+        _remoteConflict = latest;
+        await _reviewConflict(latest);
+      } else {
+        _hasConflict = false;
+        _remoteConflict = null;
       }
       _checking = false;
       setState(() {});
     }
   }
 
+  Future<void> _reviewConflict(NoteEntry latest) async {
+    final current = widget.controller.snapshot.notes
+        .where((entry) => entry.id == widget.noteId)
+        .cast<NoteEntry?>()
+        .firstOrNull;
+    final local = current?.asNote;
+    final remote = latest.asNote;
+    if (local == null || remote == null || !mounted) return;
+
+    final action = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF111827),
+        title: const Text(
+          'REMOTE_CHANGE_DETECTED',
+          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
+        ),
+        content: SizedBox(
+          width: 720,
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'LOCAL_COPY',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 1.5,
+                    color: Colors.white38,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                _ConflictPane(
+                  title: local.title,
+                  body: local.body,
+                  updatedAt: current!.updatedAt,
+                ),
+                const SizedBox(height: 20),
+                const Text(
+                  'REMOTE_COPY',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 1.5,
+                    color: Colors.white38,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                _ConflictPane(
+                  title: remote.title,
+                  body: remote.body,
+                  updatedAt: latest.updatedAt,
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, 'dismiss'),
+            child: const Text('KEEP_LOCAL'),
+          ),
+          FilledButton.tonal(
+            onPressed: () => Navigator.pop(context, 'load_remote'),
+            child: const Text('LOAD_REMOTE_COPY'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, 'open_editor'),
+            child: const Text('OPEN_EDITOR'),
+          ),
+        ],
+      ),
+    );
+
+    if (!mounted) return;
+    if (action == 'load_remote') {
+      await widget.controller.applyRemoteNote(latest);
+      if (!mounted) return;
+      setState(() {
+        _hasConflict = false;
+        _remoteConflict = null;
+      });
+    } else if (action == 'open_editor') {
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => NoteEditorPage(
+            controller: widget.controller,
+            existing: latest,
+          ),
+        ),
+      );
+      if (mounted) {
+        setState(() {
+          _hasConflict = false;
+          _remoteConflict = null;
+        });
+      }
+    }
+  }
+
+  int _currentBaseline() {
+    final note = widget.controller.snapshot.notes
+        .where((entry) => entry.id == widget.noteId)
+        .cast<NoteEntry?>()
+        .firstOrNull;
+    return note?.baselineUpdatedAt ?? note?.updatedAt ?? 0;
+  }
+
+  List<TextSpan> _highlightMatches(
+    String source,
+    String query,
+    TextStyle baseStyle,
+  ) {
+    final trimmed = query.trim();
+    if (trimmed.isEmpty) return [TextSpan(text: source, style: baseStyle)];
+
+    final spans = <TextSpan>[];
+    final lowerSource = source.toLowerCase();
+    final lowerQuery = trimmed.toLowerCase();
+    var cursor = 0;
+
+    while (true) {
+      final match = lowerSource.indexOf(lowerQuery, cursor);
+      if (match < 0) {
+        spans.add(TextSpan(text: source.substring(cursor), style: baseStyle));
+        break;
+      }
+      if (match > cursor) {
+        spans.add(
+          TextSpan(text: source.substring(cursor, match), style: baseStyle),
+        );
+      }
+      spans.add(
+        TextSpan(
+          text: source.substring(match, match + trimmed.length),
+          style: baseStyle.copyWith(
+            backgroundColor: const Color(
+              0xFF7B88FF,
+            ).withValues(alpha: 0.24),
+            color: Colors.white,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      );
+      cursor = match + trimmed.length;
+    }
+
+    return spans;
+  }
+
   void _confirmDelete(BuildContext context, String id) async {
+    final navigator = Navigator.of(context);
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -230,7 +401,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     );
     if (confirmed == true) {
       await widget.controller.deleteNote(id);
-      if (mounted) Navigator.pop(context);
+      if (mounted) navigator.pop();
     }
   }
 
@@ -238,6 +409,58 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     if (seconds <= 0) return 'Just now';
     final date = DateTime.fromMillisecondsSinceEpoch(seconds * 1000);
     return '${date.day}/${date.month}/${date.year} ${date.hour}:${date.minute.toString().padLeft(2, '0')}';
+  }
+}
+
+class _ConflictPane extends StatelessWidget {
+  const _ConflictPane({
+    required this.title,
+    required this.body,
+    required this.updatedAt,
+  });
+
+  final String title;
+  final String body;
+  final int updatedAt;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0F172A),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w800,
+              color: Colors.white,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'UPDATED_AT $updatedAt',
+            style: const TextStyle(
+              fontFamily: 'monospace',
+              fontSize: 10,
+              color: Colors.white38,
+            ),
+          ),
+          const SizedBox(height: 12),
+          SelectableText(
+            body.isEmpty ? '(empty body)' : body,
+            style: const TextStyle(color: Colors.white70, height: 1.5),
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -256,9 +479,9 @@ class _InfoChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color.withOpacity(0.2)),
+        border: Border.all(color: color.withValues(alpha: 0.2)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -341,9 +564,9 @@ class _Banner extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 24),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.08),
+        color: color.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color.withOpacity(0.15)),
+        border: Border.all(color: color.withValues(alpha: 0.15)),
       ),
       child: Row(
         children: [

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import '../models.dart';
 import '../services/relix_controller.dart';
@@ -155,6 +156,15 @@ class _SettingsPageState extends State<SettingsPage> {
                                 ),
                               ),
                             ),
+                            const SizedBox(width: 8),
+                            IconButton.filledTonal(
+                              onPressed: _pairing ? null : _scanQr,
+                              icon: const Icon(
+                                Icons.qr_code_scanner_rounded,
+                                size: 18,
+                              ),
+                              tooltip: 'SCAN_QR',
+                            ),
                             const SizedBox(width: 16),
                             SizedBox(
                               height: 44,
@@ -172,7 +182,7 @@ class _SettingsPageState extends State<SettingsPage> {
                                 style: FilledButton.styleFrom(
                                   backgroundColor: Theme.of(
                                     context,
-                                  ).colorScheme.primary.withOpacity(0.1),
+                                  ).colorScheme.primary.withValues(alpha: 0.1),
                                   foregroundColor: Theme.of(
                                     context,
                                   ).colorScheme.primary,
@@ -417,7 +427,7 @@ class _SettingsPageState extends State<SettingsPage> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
-                color: const Color(0xFF2DD4BF).withOpacity(0.1),
+                color: const Color(0xFF2DD4BF).withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(4),
               ),
               child: const Text(
@@ -451,17 +461,55 @@ class _SettingsPageState extends State<SettingsPage> {
     try {
       await widget.controller.pairDevice(_inviteController.text.trim());
       _inviteController.clear();
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(const SnackBar(content: Text('DEVICE_PAIRED')));
+      }
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('PAIR_ERR: $e')));
+      }
     } finally {
       if (mounted) setState(() => _pairing = false);
+    }
+  }
+
+  void _scanQr() async {
+    final code = await showDialog<String>(
+      context: context,
+      builder: (c) => AlertDialog(
+        backgroundColor: const Color(0xFF0F0F0F),
+        title: const Text('SCAN_INVITE_TARGET', style: TextStyle(fontSize: 12)),
+        content: SizedBox(
+          width: 300,
+          height: 300,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: MobileScanner(
+              onDetect: (capture) {
+                final List<Barcode> barcodes = capture.barcodes;
+                if (barcodes.isNotEmpty) {
+                  Navigator.pop(c, barcodes.first.rawValue);
+                }
+              },
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c),
+            child: const Text('CANCEL'),
+          ),
+        ],
+      ),
+    );
+
+    if (code != null && mounted) {
+      _inviteController.text = code;
+      _pairDevice();
     }
   }
 
