@@ -4,7 +4,6 @@
     "slug": "relix",
     "version": "0.0.1",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
     "scheme": "relix",
     "userInterfaceStyle": "dark",
     "splash": {
@@ -16,9 +15,6 @@
       "bundleIdentifier": "com.relix.mobile"
     },
     "android": {
-      "adaptiveIcon": {
-        "backgroundColor": "#0a0a0a"
-      },
       "package": "com.relix.mobile"
     },
     "web": {
