@@ -3,10 +3,16 @@ import '../models.dart';
 import '../services/relix_controller.dart';
 
 class NoteEditorPage extends StatefulWidget {
-  const NoteEditorPage({super.key, required this.controller, this.existing});
+  const NoteEditorPage({
+    super.key,
+    required this.controller,
+    this.existing,
+    this.onClose,
+  });
 
   final RelixController controller;
   final NoteEntry? existing;
+  final VoidCallback? onClose;
 
   @override
   State<NoteEditorPage> createState() => _NoteEditorPageState();
@@ -49,7 +55,7 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         leading: IconButton(
-          onPressed: () => Navigator.pop(context),
+          onPressed: _close,
           icon: const Icon(Icons.close_rounded, color: Colors.white60),
         ),
         title: Text(
@@ -61,6 +67,16 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
           ),
         ),
         actions: [
+          if (widget.existing != null)
+            IconButton(
+              onPressed: _delete,
+              icon: const Icon(
+                Icons.delete_outline_rounded,
+                color: Colors.redAccent,
+                size: 20,
+              ),
+              tooltip: 'DESTROY_trace',
+            ),
           if (_saving)
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 20),
@@ -95,16 +111,10 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
       ),
       body: Container(
         height: double.infinity,
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            colors: [Color(0xFF020617), Color(0xFF0F172A)],
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-          ),
-        ),
+        color: Theme.of(context).scaffoldBackgroundColor,
         child: SafeArea(
           child: ListView(
-            padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 20),
+            padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 40),
             children: [
               if (_hasConflict)
                 _StatusAlert(
@@ -116,11 +126,14 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
               TextField(
                 controller: _titleController,
                 autofocus: widget.existing == null,
-                style: Theme.of(context).textTheme.headlineLarge,
+                style: Theme.of(context).textTheme.headlineLarge?.copyWith(
+                  fontSize: 42,
+                  letterSpacing: -2,
+                ),
                 decoration: InputDecoration(
                   hintText: 'Neural Trace Title...',
                   hintStyle: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.1),
+                    color: Colors.white.withValues(alpha: 0.05),
                   ),
                   border: InputBorder.none,
                   enabledBorder: InputBorder.none,
@@ -128,13 +141,22 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
                   contentPadding: EdgeInsets.zero,
                 ),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 24),
 
               Row(
                 children: [
+                  const Text(
+                    '# Abstract',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w900,
+                      color: Color(0xFFA267F6),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
                   const Icon(
                     Icons.tag_rounded,
-                    size: 16,
+                    size: 14,
                     color: Colors.white24,
                   ),
                   const SizedBox(width: 8),
@@ -142,8 +164,8 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
                     child: TextField(
                       controller: _tagsController,
                       style: const TextStyle(
-                        fontSize: 13,
-                        color: Color(0xFF2DD4BF),
+                        fontSize: 12,
+                        color: Color(0xFF7B88FF),
                         fontWeight: FontWeight.w700,
                         letterSpacing: 0.5,
                       ),
@@ -151,7 +173,7 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
                         hintText: 'ASSOCIATE TAGS...',
                         hintStyle: TextStyle(
                           color: Colors.white10,
-                          fontSize: 11,
+                          fontSize: 10,
                           letterSpacing: 1,
                         ),
                         border: InputBorder.none,
@@ -170,17 +192,15 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
                 minLines: 15,
                 maxLines: null,
                 style: const TextStyle(
-                  fontSize: 18,
+                  fontSize: 15,
                   color: Colors.white70,
-                  height: 1.6,
-                  fontFamily: 'serif', // Elegant reading experience
+                  height: 1.8,
                 ),
                 decoration: InputDecoration(
                   hintText:
-                      'Expand your consciousness here...\n\nConnect logic with [[wikilinks]].',
+                      'The decentralization of cognitive artifacts requires a robust protocol...',
                   hintStyle: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.05),
-                    fontStyle: FontStyle.italic,
+                    color: Colors.white.withValues(alpha: 0.02),
                   ),
                   border: InputBorder.none,
                   enabledBorder: InputBorder.none,
@@ -222,6 +242,46 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
     );
   }
 
+  Future<void> _delete() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        backgroundColor: const Color(0xFF131313),
+        title: const Text(
+          'PURGE_TRACE',
+          style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 1),
+        ),
+        content: const Text(
+          'This action will permanently delete this cognitive artifact from the neural network.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c, false),
+            child: const Text('ABORT', style: TextStyle(color: Colors.white24)),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(c, true),
+            style: FilledButton.styleFrom(backgroundColor: Colors.redAccent),
+            child: const Text('CONFIRM'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && widget.existing != null) {
+      await widget.controller.deleteNote(widget.existing!.id);
+      _close();
+    }
+  }
+
+  void _close() {
+    if (widget.onClose != null) {
+      widget.onClose!();
+    } else if (Navigator.canPop(context)) {
+      Navigator.pop(context);
+    }
+  }
+
   Future<void> _save() async {
     final title = _titleController.text.trim().isEmpty
         ? 'Untitled'
@@ -246,9 +306,10 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
           id: widget.existing!.id,
           title: title,
           body: body,
+          tags: tags,
         );
       }
-      if (mounted) Navigator.of(context).pop();
+      if (mounted) _close();
     } catch (e) {
       if (mounted) {
         setState(() => _saving = false);

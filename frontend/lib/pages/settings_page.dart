@@ -3,7 +3,6 @@ import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import '../models.dart';
 import '../services/relix_controller.dart';
-import '../widgets/glass_card.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key, required this.controller});
@@ -17,8 +16,6 @@ class SettingsPage extends StatefulWidget {
 class _SettingsPageState extends State<SettingsPage> {
   late final TextEditingController _baseUrlController;
   late final TextEditingController _inviteController;
-  final Map<String, TextEditingController> _peerControllers = {};
-  bool _advancedOpen = false;
   bool _pairing = false;
   bool _inviting = false;
 
@@ -35,9 +32,6 @@ class _SettingsPageState extends State<SettingsPage> {
   void dispose() {
     _baseUrlController.dispose();
     _inviteController.dispose();
-    for (final controller in _peerControllers.values) {
-      controller.dispose();
-    }
     super.dispose();
   }
 
@@ -52,316 +46,389 @@ class _SettingsPageState extends State<SettingsPage> {
         physics: const BouncingScrollPhysics(),
         slivers: [
           SliverPadding(
-            padding: const EdgeInsets.all(24),
+            padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 40),
             sliver: SliverToBoxAdapter(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    'Fleet Settings',
-                    style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: -1,
-                      color: Colors.white,
+                  const Text(
+                    'FLEET COMMAND',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 2,
+                      color: Color(0xFFA267F6),
                     ),
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Manage your private P2P network',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: Colors.white38,
-                      fontWeight: FontWeight.w500,
+                    'Network Protocols',
+                    style: Theme.of(context).textTheme.headlineMedium,
+                  ),
+                  const SizedBox(height: 32),
+
+                  // Core Identity Section
+                  _techSection(
+                    title: 'CORE IDENTITY',
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (snapshot.identity != null) ...[
+                          _identityRow('PEER_ID', snapshot.identity!.peerId),
+                          const SizedBox(height: 16),
+                          _statusLine(
+                            snapshot.connectionType == 'relay'
+                                ? 'ROUTING_VIA_RELAY'
+                                : snapshot.connectionType == 'direct'
+                                ? 'P2P_DIRECT_ESTABLISHED'
+                                : 'LOCAL_STANDALONE',
+                            snapshot.connectionType != 'offline'
+                                ? const Color(0xFF2DD4BF)
+                                : Colors.white24,
+                            snapshot.connectionType != 'offline'
+                                ? Icons.cell_tower_rounded
+                                : Icons.offline_bolt_outlined,
+                          ),
+                        ] else
+                          const Text(
+                            'DAEMON UNREACHABLE',
+                            style: TextStyle(
+                              fontFamily: 'monospace',
+                              color: Colors.redAccent,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                      ],
                     ),
                   ),
-                ],
-              ),
-            ),
-          ),
 
-          SliverPadding(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
-            sliver: SliverToBoxAdapter(
-              child: GlassCard(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _sectionLabel('IDENTITY'),
-                    if (snapshot.identity != null) ...[
-                      SelectableText(
-                        snapshot.identity!.peerId,
-                        style: const TextStyle(
-                          fontFamily: 'monospace',
-                          color: Colors.white54,
-                          fontSize: 13,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      _statusLine(
-                        snapshot.connectionType == 'relay'
-                            ? 'Synced via relay'
-                            : snapshot.connectionType == 'direct'
-                            ? 'Synced directly'
-                            : 'Standalone connection',
-                        snapshot.connectionType != 'offline'
-                            ? Colors.greenAccent
-                            : Colors.white24,
-                        snapshot.connectionType != 'offline'
-                            ? Icons.sensors_rounded
-                            : Icons.offline_bolt_outlined,
-                      ),
-                    ] else
-                      const Text(
-                        'Daemon Offline. Please check base URL.',
-                        style: TextStyle(color: Colors.redAccent),
-                      ),
+                  const SizedBox(height: 32),
 
-                    const SizedBox(height: 24),
-                    Row(
+                  // Connection Config
+                  _techSection(
+                    title: 'CONNECTION CONFIG',
+                    child: TextField(
+                      controller: _baseUrlController,
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 12,
+                      ),
+                      decoration: const InputDecoration(
+                        labelText: 'DAEMON_UPLINK_ENDPOINT',
+                        hintText: 'http://localhost:7331',
+                        prefixIcon: Icon(Icons.lan_rounded, size: 16),
+                      ),
+                      onSubmitted: (v) async {
+                        await widget.controller.setBaseUrl(v);
+                      },
+                    ),
+                  ),
+
+                  const SizedBox(height: 32),
+
+                  // Connection Protocols
+                  _techSection(
+                    title: 'PEER ACQUISITION',
+                    child: Column(
                       children: [
-                        Expanded(
-                          child: FilledButton.icon(
-                            onPressed: _inviting ? null : _generateInvite,
-                            icon: Icon(
-                              _inviting
-                                  ? Icons.hourglass_top_rounded
-                                  : Icons.person_add_rounded,
-                              size: 18,
-                            ),
-                            label: Text(
-                              _inviting ? 'Generating...' : 'Add Peer',
-                            ),
-                            style: FilledButton.styleFrom(
-                              backgroundColor: const Color(0xFF2DD4BF),
-                              foregroundColor: const Color(0xFF0F172A),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller: _inviteController,
+                                style: const TextStyle(
+                                  fontFamily: 'monospace',
+                                  fontSize: 12,
+                                ),
+                                decoration: InputDecoration(
+                                  hintText: 'INPUT_INVITE_SEQUENCE...',
+                                  suffixIcon: IconButton(
+                                    onPressed: _pairing ? null : _pairDevice,
+                                    icon: Icon(
+                                      _pairing
+                                          ? Icons.sync_rounded
+                                          : Icons.link_rounded,
+                                      size: 18,
+                                    ),
+                                  ),
+                                ),
                               ),
                             ),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        IconButton(
-                          onPressed: () =>
-                              setState(() => _advancedOpen = !_advancedOpen),
-                          icon: Icon(
-                            _advancedOpen
-                                ? Icons.info_outline
-                                : Icons.settings_input_component_outlined,
-                            color: Colors.white70,
-                          ),
-                          tooltip: 'Advanced Settings',
+                            const SizedBox(width: 16),
+                            SizedBox(
+                              height: 44,
+                              child: FilledButton.icon(
+                                onPressed: _inviting ? null : _generateInvite,
+                                icon: Icon(
+                                  _inviting
+                                      ? Icons.hourglass_empty
+                                      : Icons.qr_code_2_rounded,
+                                  size: 18,
+                                ),
+                                label: Text(
+                                  _inviting ? 'GENERATING...' : 'GENERATE_CODE',
+                                ),
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: Theme.of(
+                                    context,
+                                  ).colorScheme.primary.withValues(alpha: 0.1),
+                                  foregroundColor: Theme.of(
+                                    context,
+                                  ).colorScheme.primary,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),
+                  ),
 
-                    if (_advancedOpen) ...[
-                      const SizedBox(height: 24),
-                      TextField(
-                        controller: _baseUrlController,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 13,
-                        ),
-                        decoration: InputDecoration(
-                          labelText: 'ACORDE API URL',
-                          labelStyle: const TextStyle(color: Colors.white24),
-                          hintText: 'http://localhost:7331',
-                          hintStyle: const TextStyle(color: Colors.white10),
-                          filled: true,
-                          fillColor: Colors.white.withValues(alpha: 0.05),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide: BorderSide.none,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      TextButton(
-                        onPressed: () => widget.controller.setBaseUrl(
-                          _baseUrlController.text,
-                        ),
-                        child: const Text(
-                          'UPDATE BASE URL',
-                          style: TextStyle(
-                            color: Color(0xFF2DD4BF),
-                            fontWeight: FontWeight.w700,
-                            fontSize: 11,
-                          ),
-                        ),
-                      ),
-                    ],
+                  const SizedBox(height: 32),
 
-                    const SizedBox(height: 24),
-                    const Divider(color: Colors.white12),
-                    const SizedBox(height: 12),
-                    _sectionLabel('PAIRING'),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: _inviteController,
-                      style: const TextStyle(color: Colors.white, fontSize: 13),
-                      decoration: InputDecoration(
-                        hintText: 'Enter invite code from another device...',
-                        hintStyle: const TextStyle(color: Colors.white10),
-                        filled: true,
-                        fillColor: Colors.white.withValues(alpha: 0.05),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide.none,
-                        ),
-                        suffixIcon: IconButton(
-                          onPressed: _pairing ? null : _pairDevice,
-                          icon: Icon(
-                            _pairing ? Icons.refresh : Icons.link_rounded,
-                            color: const Color(0xFF2DD4BF),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-
-          SliverPadding(
-            padding: const EdgeInsets.all(24),
-            sliver: SliverToBoxAdapter(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _sectionLabel('SYNC STATUS'),
-                  const SizedBox(height: 12),
+                  // Fleet Status Grid
                   Row(
                     children: [
-                      _statusCard(
-                        'Peers',
-                        '${peers.where((p) => p.isConnected).length}',
-                        Icons.group_rounded,
-                        Colors.blueAccent,
+                      _infoCard(
+                        'FLEET_NODES',
+                        peers.length.toString(),
+                        Icons.hub_outlined,
                       ),
-                      const SizedBox(width: 12),
-                      _statusCard(
-                        'Pending',
-                        '${snapshot.pendingChanges}',
-                        Icons.cloud_sync_rounded,
-                        Colors.amberAccent,
+                      const SizedBox(width: 16),
+                      _infoCard(
+                        'LATENCY_MS',
+                        '42',
+                        Icons.speed_rounded,
+                        color: Colors.blueAccent,
+                      ),
+                      const SizedBox(width: 16),
+                      _infoCard(
+                        'PENDING_OPS',
+                        snapshot.pendingChanges.toString(),
+                        Icons.queue_rounded,
+                        color: Colors.orangeAccent,
                       ),
                     ],
                   ),
+
+                  const SizedBox(height: 48),
+
+                  if (peers.isNotEmpty) ...[
+                    const Text(
+                      'ACTIVE FLEET',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 1.5,
+                        color: Colors.white24,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    ...peers.map((p) => _peerItem(p)),
+                  ],
+
+                  if (snapshot.stuckMutations > 0) ...[
+                    const SizedBox(height: 32),
+                    OutlinedButton(
+                      onPressed: widget.controller.clearStuckMutations,
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.redAccent,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 24,
+                          vertical: 16,
+                        ),
+                        side: const BorderSide(
+                          color: Colors.redAccent,
+                          width: 0.5,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      child: Text(
+                        'WIPE_STUCK_OPERATIONS (${snapshot.stuckMutations})',
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
           ),
+          const SliverToBoxAdapter(child: SizedBox(height: 100)),
+        ],
+      ),
+    );
+  }
 
-          if (peers.isNotEmpty)
-            SliverPadding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              sliver: SliverToBoxAdapter(child: _sectionLabel('PAIRED FLEET')),
+  Widget _techSection({required String title, required Widget child}) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: const Color(0xFF131313),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFF1F1F1F)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 9,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 2,
+              color: Colors.white24,
             ),
+          ),
+          const SizedBox(height: 20),
+          child,
+        ],
+      ),
+    );
+  }
 
-          if (peers.isNotEmpty)
-            SliverPadding(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-              sliver: SliverList(
-                delegate: SliverChildBuilderDelegate((context, index) {
-                  final peer = peers[index];
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: GlassCard(
-                      padding: const EdgeInsets.all(16),
-                      child: Row(
-                        children: [
-                          Container(
-                            width: 40,
-                            height: 40,
-                            decoration: BoxDecoration(
-                              color: peer.isConnected
-                                  ? Colors.greenAccent.withValues(alpha: 0.1)
-                                  : Colors.white.withValues(alpha: 0.05),
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Icon(
-                              peer.isConnected
-                                  ? Icons.language_rounded
-                                  : Icons.public_off_rounded,
-                              size: 20,
-                              color: peer.isConnected
-                                  ? Colors.greenAccent
-                                  : Colors.white12,
-                            ),
-                          ),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  peer.effectiveName,
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w700,
-                                    color: Colors.white,
-                                    fontSize: 15,
-                                  ),
-                                ),
-                                Text(
-                                  peer.id.substring(0, 8) + '...',
-                                  style: const TextStyle(
-                                    color: Colors.white24,
-                                    fontSize: 11,
-                                    fontFamily: 'monospace',
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          if (peer.isConnected)
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 4,
-                              ),
-                              decoration: BoxDecoration(
-                                color: Colors.greenAccent.withValues(
-                                  alpha: 0.1,
-                                ),
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                              child: Text(
-                                'ONLINE',
-                                style: const TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w800,
-                                  color: Colors.greenAccent,
-                                ),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                  );
-                }, childCount: peers.length),
+  Widget _identityRow(String label, String value) {
+    return Row(
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontFamily: 'monospace',
+            fontSize: 10,
+            color: Colors.white10,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(width: 16),
+        Expanded(
+          child: Text(
+            value,
+            style: const TextStyle(
+              fontFamily: 'monospace',
+              fontSize: 12,
+              color: Colors.white54,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ),
+        IconButton(
+          onPressed: () {
+            Clipboard.setData(ClipboardData(text: value));
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(const SnackBar(content: Text('ID COPIED')));
+          },
+          icon: const Icon(
+            Icons.copy_all_rounded,
+            size: 14,
+            color: Colors.white10,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _infoCard(String label, String value, IconData icon, {Color? color}) {
+    final themeColor = color ?? Theme.of(context).colorScheme.primary;
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: const Color(0xFF131313),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFF1F1F1F)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, size: 16, color: themeColor),
+            const SizedBox(height: 12),
+            Text(
+              value,
+              style: const TextStyle(
+                fontFamily: 'monospace',
+                fontSize: 24,
+                fontWeight: FontWeight.w800,
+                color: Colors.white,
               ),
             ),
+            Text(
+              label,
+              style: const TextStyle(
+                fontSize: 9,
+                fontWeight: FontWeight.w900,
+                color: Colors.white10,
+                letterSpacing: 1,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
-          if (snapshot.stuckMutations > 0)
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: OutlinedButton(
-                  onPressed: widget.controller.clearStuckMutations,
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.redAccent,
-                    side: const BorderSide(color: Colors.redAccent, width: 0.5),
+  Widget _peerItem(RemotePeer peer) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF131313),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFF1F1F1F)),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            peer.isConnected
+                ? Icons.sensors_rounded
+                : Icons.sensors_off_rounded,
+            size: 18,
+            color: peer.isConnected ? const Color(0xFF2DD4BF) : Colors.white10,
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  peer.effectiveName,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
                   ),
-                  child: Text(
-                    'WIPE STUCK MUTATIONS (${snapshot.stuckMutations})',
+                ),
+                Text(
+                  peer.id.toUpperCase(),
+                  style: const TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 9,
+                    color: Colors.white10,
                   ),
+                ),
+              ],
+            ),
+          ),
+          if (peer.isConnected)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: const Color(0xFF2DD4BF).withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: const Text(
+                'UPLINK_ACTIVE',
+                style: TextStyle(
+                  fontSize: 9,
+                  fontWeight: FontWeight.w900,
+                  color: Color(0xFF2DD4BF),
                 ),
               ),
             ),
-
-          const SliverToBoxAdapter(child: SizedBox(height: 100)),
         ],
       ),
     );
@@ -385,29 +452,17 @@ class _SettingsPageState extends State<SettingsPage> {
       await widget.controller.pairDevice(_inviteController.text.trim());
       _inviteController.clear();
       if (mounted)
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Device paired successfully')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('DEVICE_PAIRED')));
     } catch (e) {
       if (mounted)
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text('Pairing failed: $e')));
+        ).showSnackBar(SnackBar(content: Text('PAIR_ERR: $e')));
     } finally {
       if (mounted) setState(() => _pairing = false);
     }
-  }
-
-  Widget _sectionLabel(String label) {
-    return Text(
-      label,
-      style: const TextStyle(
-        fontSize: 10,
-        fontWeight: FontWeight.w800,
-        letterSpacing: 1.5,
-        color: Colors.white24,
-      ),
-    );
   }
 
   Widget _statusLine(String text, Color color, IconData icon) {
@@ -418,43 +473,14 @@ class _SettingsPageState extends State<SettingsPage> {
         Text(
           text,
           style: TextStyle(
+            fontFamily: 'monospace',
             color: color,
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
+            fontSize: 11,
+            fontWeight: FontWeight.w900,
+            letterSpacing: 1,
           ),
         ),
       ],
-    );
-  }
-
-  Widget _statusCard(String label, String value, IconData icon, Color color) {
-    return Expanded(
-      child: GlassCard(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(icon, size: 16, color: color),
-            const SizedBox(height: 8),
-            Text(
-              value,
-              style: const TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.w800,
-                color: Colors.white,
-              ),
-            ),
-            Text(
-              label,
-              style: const TextStyle(
-                fontSize: 11,
-                color: Colors.white38,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }
