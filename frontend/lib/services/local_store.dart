@@ -10,6 +10,7 @@ class LocalStore {
   static const _queueKey = 'relix.mutation_queue';
   static const _stuckKey = 'relix.stuck_mutations';
   static const _peersKey = 'relix.peers_meta';
+  static const _onboardingKey = 'relix.onboarding_complete';
 
   Future<SharedPreferences> get _prefs async => SharedPreferences.getInstance();
 
@@ -75,4 +76,10 @@ class LocalStore {
       jsonEncode(peers.map((peer) => peer.toJson()).toList()),
     );
   }
+
+  Future<bool> readOnboardingComplete() async =>
+      (await _prefs).getBool(_onboardingKey) ?? false;
+
+  Future<void> writeOnboardingComplete(bool value) async =>
+      (await _prefs).setBool(_onboardingKey, value);
 }

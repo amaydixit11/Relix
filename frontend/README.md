@@ -1,17 +1,61 @@
-# relix_flutter
+# Relix Flutter Frontend
 
-A new Flutter project.
+This is the primary Relix client on the `flutter-rewrite` branch.
 
-## Getting Started
+## Requirements
 
-This project is a starting point for a Flutter application.
+- Flutter 3.41+
+- A reachable ACORDE daemon
+- Platform SDKs for whichever target you run
 
-A few resources to get you started if this is your first Flutter project:
+## Run
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+From the repo root:
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+```bash
+./start-all.sh
+```
+
+Or directly:
+
+```bash
+cd frontend
+flutter pub get
+flutter run -d chrome
+```
+
+Other targets:
+
+```bash
+flutter run -d linux
+flutter run -d macos
+flutter run -d windows
+flutter run -d android
+flutter run -d ios
+```
+
+## ACORDE URL
+
+The app defaults to:
+
+```txt
+http://localhost:7331
+```
+
+Override it from the Settings screen when testing against another machine or daemon instance.
+
+On first launch the app now shows a setup screen before entering the main vault UI. That flow persists the initial daemon URL in local storage and can be skipped later by changing the URL from Settings.
+
+## Release Checklist
+
+Before shipping, replace the generated example bundle IDs:
+
+- Android: `com.example.relix_flutter`
+- Apple targets under `frontend/ios` and `frontend/macos`
+
+## Validation
+
+```bash
+flutter analyze
+flutter test
+```
