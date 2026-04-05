@@ -48,4 +48,5 @@ echo -e "${GREEN}✓ ACORDE Daemon started (PID: $BACKEND_PID)${NC}"
 # 2. Start Relix Flutter App
 echo "2. Launching Relix Flutter frontend..."
 cd frontend
-flutter run -d "${RELIX_FLUTTER_DEVICE:-chrome}"
+# flutter run -d "${RELIX_FLUTTER_DEVICE:-chrome}"
+flutter run #-d "${RELIX_FLUTTER_DEVICE:-chrome}"

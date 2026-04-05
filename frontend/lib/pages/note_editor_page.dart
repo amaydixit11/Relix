@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import '../models.dart';
 import '../services/relix_controller.dart';
 
@@ -19,23 +20,32 @@ class NoteEditorPage extends StatefulWidget {
 }
 
 class _NoteEditorPageState extends State<NoteEditorPage> {
-  late final TextEditingController _titleController;
-  late final TextEditingController _bodyController;
-  late final TextEditingController _tagsController;
+  late TextEditingController _titleController;
+  late TextEditingController _bodyController;
+  late TextEditingController _tagsController;
   bool _saving = false;
-  bool _hasConflict = false;
+  bool _isPreview = false;
+  List<NoteEntry> _backlinks = [];
 
   @override
   void initState() {
     super.initState();
-    final noteContent = widget.existing?.content as NoteContent?;
-    _titleController = TextEditingController(text: noteContent?.title ?? '');
-    _bodyController = TextEditingController(text: noteContent?.body ?? '');
+    final note = widget.existing?.content as NoteContent?;
+    _titleController = TextEditingController(text: note?.title ?? '');
+    _bodyController = TextEditingController(text: note?.body ?? '');
     _tagsController = TextEditingController(
-      text:
-          widget.existing?.tags.where((tag) => !tag.contains(':')).join(', ') ??
-          '',
+      text: widget.existing?.tags.join(', ') ?? '',
     );
+    if (widget.existing != null) {
+      _loadBacklinks();
+    }
+  }
+
+  Future<void> _loadBacklinks() async {
+    try {
+      final bl = await widget.controller.getBacklinks(widget.existing!.id);
+      if (mounted) setState(() => _backlinks = bl);
+    } catch (_) {}
   }
 
   @override
@@ -52,19 +62,19 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
       backgroundColor: Colors.transparent,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
-        surfaceTintColor: Colors.transparent,
-        elevation: 0,
-        leading: IconButton(
-          onPressed: _close,
-          icon: const Icon(Icons.close_rounded, color: Colors.white60),
-        ),
-        title: Text(
-          widget.existing == null ? 'Drafting Neural Note' : 'Refining Memory',
-          style: const TextStyle(
-            fontWeight: FontWeight.w900,
-            letterSpacing: -1,
-            fontSize: 18,
-          ),
+        automaticallyImplyLeading: false,
+        title: Row(
+          children: [
+            IconButton(
+              icon: const Icon(Icons.chevron_left_rounded, size: 20),
+              onPressed: _close,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              widget.existing == null ? 'NEW_TRACE' : 'EDIT_TRACE',
+              style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w900),
+            ),
+          ],
         ),
         actions: [
           if (widget.existing != null)
@@ -77,13 +87,21 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
               ),
               tooltip: 'DESTROY_trace',
             ),
+          const VerticalDivider(width: 1, indent: 12, endIndent: 12),
+          TextButton(
+            onPressed: () => setState(() => _isPreview = !_isPreview),
+            child: Text(
+              _isPreview ? 'EDITOR' : 'PREVIEW',
+              style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w900),
+            ),
+          ),
           if (_saving)
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 20),
               child: Center(
                 child: SizedBox(
-                  width: 20,
-                  height: 20,
+                  width: 16,
+                  height: 16,
                   child: CircularProgressIndicator(
                     strokeWidth: 2,
                     color: Color(0xFF2DD4BF),
@@ -110,136 +128,203 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
         ],
       ),
       body: Container(
-        height: double.infinity,
-        color: Theme.of(context).scaffoldBackgroundColor,
-        child: SafeArea(
-          child: ListView(
-            padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 40),
-            children: [
-              if (_hasConflict)
-                _StatusAlert(
-                  color: Colors.orangeAccent,
-                  text: 'Divergent history detected. Remote changes exist.',
-                  icon: Icons.history_edu_rounded,
-                ),
-
-              TextField(
-                controller: _titleController,
-                autofocus: widget.existing == null,
-                style: Theme.of(context).textTheme.headlineLarge?.copyWith(
-                  fontSize: 42,
-                  letterSpacing: -2,
-                ),
-                decoration: InputDecoration(
-                  hintText: 'Neural Trace Title...',
-                  hintStyle: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.05),
-                  ),
-                  border: InputBorder.none,
-                  enabledBorder: InputBorder.none,
-                  focusedBorder: InputBorder.none,
-                  contentPadding: EdgeInsets.zero,
-                ),
-              ),
-              const SizedBox(height: 24),
-
-              Row(
-                children: [
-                  const Text(
-                    '# Abstract',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w900,
-                      color: Color(0xFFA267F6),
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  const Icon(
-                    Icons.tag_rounded,
-                    size: 14,
-                    color: Colors.white24,
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: TextField(
-                      controller: _tagsController,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: Color(0xFF7B88FF),
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 0.5,
-                      ),
-                      decoration: const InputDecoration(
-                        hintText: 'ASSOCIATE TAGS...',
-                        hintStyle: TextStyle(
-                          color: Colors.white10,
-                          fontSize: 10,
-                          letterSpacing: 1,
-                        ),
-                        border: InputBorder.none,
-                        enabledBorder: InputBorder.none,
-                        focusedBorder: InputBorder.none,
-                        contentPadding: EdgeInsets.zero,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 32),
-
-              TextField(
-                controller: _bodyController,
-                minLines: 15,
-                maxLines: null,
-                style: const TextStyle(
-                  fontSize: 15,
-                  color: Colors.white70,
-                  height: 1.8,
-                ),
-                decoration: InputDecoration(
-                  hintText:
-                      'The decentralization of cognitive artifacts requires a robust protocol...',
-                  hintStyle: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.02),
-                  ),
-                  border: InputBorder.none,
-                  enabledBorder: InputBorder.none,
-                  focusedBorder: InputBorder.none,
-                  contentPadding: EdgeInsets.zero,
-                ),
-              ),
-
-              const SizedBox(height: 64),
-              if (widget.existing != null)
-                OutlinedButton.icon(
-                  onPressed: () async {
-                    final latest = await widget.controller
-                        .fetchLatestRemoteNote(widget.existing!.id);
-                    if (mounted) {
-                      setState(
-                        () => _hasConflict =
-                            latest != null &&
-                            latest.updatedAt >
-                                (widget.existing?.updatedAt ?? 0),
-                      );
-                    }
-                  },
-                  icon: const Icon(Icons.refresh_rounded, size: 16),
-                  label: const Text('SYNC CHECK'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.white24,
-                    side: const BorderSide(color: Colors.white10),
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                  ),
-                ),
-            ],
-          ),
-        ),
+        color: const Color(0xFF0F0F0F),
+        child: _isPreview ? _buildPreview() : _buildEditor(),
       ),
     );
+  }
+
+  Widget _buildEditor() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 32),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          TextField(
+            controller: _titleController,
+            style: const TextStyle(
+              fontSize: 32,
+              fontWeight: FontWeight.w900,
+              letterSpacing: -1,
+            ),
+            decoration: const InputDecoration(
+              hintText: 'Enter title...',
+              border: InputBorder.none,
+              enabledBorder: InputBorder.none,
+              focusedBorder: InputBorder.none,
+              fillColor: Colors.transparent,
+            ),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _tagsController,
+            style: const TextStyle(
+              fontFamily: 'monospace',
+              fontSize: 11,
+              color: Color(0xFFA267F6),
+            ),
+            decoration: const InputDecoration(
+              hintText: 'tags, separated, by, commas',
+              border: InputBorder.none,
+              enabledBorder: InputBorder.none,
+              focusedBorder: InputBorder.none,
+              fillColor: Colors.transparent,
+              prefixIcon: Icon(
+                Icons.tag_rounded,
+                size: 14,
+                color: Colors.white10,
+              ),
+            ),
+          ),
+          const Divider(height: 48),
+          TextField(
+            controller: _bodyController,
+            maxLines: null,
+            style: const TextStyle(fontSize: 15, height: 1.6),
+            decoration: const InputDecoration(
+              hintText: 'Begin cognitive recording...',
+              border: InputBorder.none,
+              enabledBorder: InputBorder.none,
+              focusedBorder: InputBorder.none,
+              fillColor: Colors.transparent,
+            ),
+          ),
+          const SizedBox(height: 100),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPreview() {
+    final title = _titleController.text;
+    final body = _bodyController.text;
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 32),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title.isEmpty ? 'Untitled Trace' : title,
+            style: const TextStyle(
+              fontSize: 40,
+              fontWeight: FontWeight.w900,
+              letterSpacing: -1.5,
+              color: Colors.white,
+            ),
+          ),
+          const SizedBox(height: 32),
+          MarkdownBody(
+            data: body,
+            selectable: true,
+            styleSheet: MarkdownStyleSheet(
+              p: const TextStyle(
+                fontSize: 15,
+                height: 1.7,
+                color: Colors.white70,
+              ),
+              h1: const TextStyle(fontWeight: FontWeight.w900, fontSize: 24),
+              h2: const TextStyle(fontWeight: FontWeight.w800, fontSize: 20),
+              code: const TextStyle(
+                fontFamily: 'monospace',
+                backgroundColor: Color(0xFF131313),
+                color: Color(0xFF2DD4BF),
+              ),
+              codeblockDecoration: BoxDecoration(
+                color: const Color(0xFF131313),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: const Color(0xFF1F1F1F)),
+              ),
+            ),
+          ),
+          if (_backlinks.isNotEmpty) ...[
+            const SizedBox(height: 64),
+            const Text(
+              'LINKED REFERENCES',
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 2,
+                color: Colors.white24,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: _backlinks.map((bl) => _buildBacklinkCard(bl)).toList(),
+            ),
+          ],
+          const SizedBox(height: 100),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBacklinkCard(NoteEntry note) {
+    final content = note.content as NoteContent;
+    return Container(
+      width: 260,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF131313),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFF1F1F1F)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '[[${content.title}]]',
+            style: const TextStyle(
+              fontWeight: FontWeight.w700,
+              fontSize: 12,
+              color: Color(0xFF7B88FF),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            content.body.length > 60
+                ? '${content.body.substring(0, 60)}...'
+                : content.body,
+            style: const TextStyle(fontSize: 10, color: Colors.white24),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _save() async {
+    final title = _titleController.text.trim();
+    final body = _bodyController.text.trim();
+    final tags = _tagsController.text
+        .split(',')
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
+
+    if (title.isEmpty) return;
+
+    setState(() => _saving = true);
+    try {
+      if (widget.existing == null) {
+        await widget.controller.createNote(
+          title: title,
+          body: body,
+          tags: tags,
+        );
+      } else {
+        await widget.controller.updateNote(
+          id: widget.existing!.id,
+          title: title,
+          body: body,
+          tags: tags,
+        );
+      }
+      if (mounted) _close();
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 
   Future<void> _delete() async {
@@ -252,7 +337,7 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
           style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 1),
         ),
         content: const Text(
-          'This action will permanently delete this cognitive artifact from the neural network.',
+          'This action will permanently delete this cognitive artifact.',
         ),
         actions: [
           TextButton(
@@ -277,96 +362,8 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
   void _close() {
     if (widget.onClose != null) {
       widget.onClose!();
-    } else if (Navigator.canPop(context)) {
+    } else {
       Navigator.pop(context);
     }
-  }
-
-  Future<void> _save() async {
-    final title = _titleController.text.trim().isEmpty
-        ? 'Untitled'
-        : _titleController.text.trim();
-    final body = _bodyController.text;
-    final tags = _tagsController.text
-        .split(',')
-        .map((t) => t.trim())
-        .where((t) => t.isNotEmpty)
-        .toList();
-
-    setState(() => _saving = true);
-    try {
-      if (widget.existing == null) {
-        await widget.controller.createNote(
-          title: title,
-          body: body,
-          tags: tags,
-        );
-      } else {
-        await widget.controller.updateNote(
-          id: widget.existing!.id,
-          title: title,
-          body: body,
-          tags: tags,
-        );
-      }
-      if (mounted) _close();
-    } catch (e) {
-      if (mounted) {
-        setState(() => _saving = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            backgroundColor: Colors.redAccent,
-            content: Text(
-              'Transmission Failed: $e',
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-        );
-      }
-    }
-  }
-}
-
-class _StatusAlert extends StatelessWidget {
-  const _StatusAlert({
-    required this.color,
-    required this.text,
-    required this.icon,
-  });
-  final Color color;
-  final String text;
-  final IconData icon;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 32),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.05),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color.withValues(alpha: 0.1)),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, size: 20, color: color),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Text(
-              text,
-              style: TextStyle(
-                color: color,
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 0.2,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
   }
 }

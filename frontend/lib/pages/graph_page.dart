@@ -253,7 +253,7 @@ class _TechnicalGridPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.1)
+      ..color = Colors.white.withOpacity(0.1)
       ..strokeWidth = 1;
 
     for (double i = 0; i < size.width; i += 40) {
@@ -263,7 +263,7 @@ class _TechnicalGridPainter extends CustomPainter {
       canvas.drawLine(Offset(0, i), Offset(size.width, i), paint);
     }
 
-    final dotPaint = Paint()..color = Colors.white.withValues(alpha: 0.2);
+    final dotPaint = Paint()..color = Colors.white.withOpacity(0.2);
     for (double i = 0; i < size.width; i += 40) {
       for (double j = 0; j < size.height; j += 40) {
         canvas.drawCircle(Offset(i, j), 1, dotPaint);

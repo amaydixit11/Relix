@@ -18,7 +18,7 @@ class ConnectionBanner extends StatelessWidget {
 
     return Container(
       width: double.infinity,
-      color: color.withValues(alpha: 0.12),
+      color: color.withOpacity(0.12),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       child: Row(
         children: [

@@ -172,7 +172,7 @@ class _SettingsPageState extends State<SettingsPage> {
                                 style: FilledButton.styleFrom(
                                   backgroundColor: Theme.of(
                                     context,
-                                  ).colorScheme.primary.withValues(alpha: 0.1),
+                                  ).colorScheme.primary.withOpacity(0.1),
                                   foregroundColor: Theme.of(
                                     context,
                                   ).colorScheme.primary,
@@ -417,7 +417,7 @@ class _SettingsPageState extends State<SettingsPage> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
-                color: const Color(0xFF2DD4BF).withValues(alpha: 0.1),
+                color: const Color(0xFF2DD4BF).withOpacity(0.1),
                 borderRadius: BorderRadius.circular(4),
               ),
               child: const Text(

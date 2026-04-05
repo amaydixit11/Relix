@@ -250,6 +250,8 @@ class RelixController extends ChangeNotifier {
     unawaited(refresh());
   }
 
+  Future<List<NoteEntry>> getBacklinks(String id) => _note.getBacklinks(id);
+
   Future<void> deleteNote(String id) async {
     final notes = _snapshot.notes.where((note) => note.id != id).toList();
     await _store.writeNotes(notes);

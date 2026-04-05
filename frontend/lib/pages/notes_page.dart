@@ -159,7 +159,7 @@ class _NotesPageState extends State<NotesPage> {
           prefixIcon: Icon(
             Icons.search_rounded,
             size: 18,
-            color: Colors.white.withValues(alpha: 0.1),
+            color: Colors.white.withOpacity(0.1),
           ),
           border: InputBorder.none,
           enabledBorder: InputBorder.none,

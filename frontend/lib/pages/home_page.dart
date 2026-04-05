@@ -113,7 +113,7 @@ class _HomePageState extends State<HomePage> {
 
   Widget _buildWorkbenchTabs(BuildContext context, SyncSnapshot snapshot) {
     NoteEntry? activeNote;
-    if (_activeNoteId != null) {
+    if (_activeNoteId != null && _activeNoteId != 'new') {
       activeNote = snapshot.notes.cast<NoteEntry?>().firstWhere(
         (n) => n?.id == _activeNoteId,
         orElse: () => null,
@@ -121,31 +121,34 @@ class _HomePageState extends State<HomePage> {
     }
 
     return Container(
-      height: 40,
-      color: Theme.of(context).cardTheme.color,
+      height: 48,
+      decoration: const BoxDecoration(
+        color: Color(0xFF131313),
+        border: Border(bottom: BorderSide(color: Color(0xFF1F1F1F))),
+      ),
       child: Row(
         children: [
           const SizedBox(width: 8),
           if (_activeNoteId != null)
             _tabItem(
               _activeNoteId == 'new'
-                  ? 'New Trace*'
-                  : (activeNote?.content.title ?? 'Refreshing...'),
+                  ? 'New Trace.md'
+                  : '${activeNote?.asNote?.title ?? 'Refreshing'}.md',
               active: true,
               onClose: () => setState(() => _activeNoteId = null),
             ),
-          if (_activeNoteId == null) _tabItem('Memory Explorer', active: true),
+          if (_activeNoteId == null)
+            _tabItem('Neural Repository', active: true),
           const Spacer(),
-          CircleAvatar(
-            radius: 12,
-            backgroundColor: Colors.white.withValues(alpha: 0.05),
-            child: const Icon(
+          IconButton(
+            onPressed: () {},
+            icon: const Icon(
               Icons.more_horiz_rounded,
-              size: 14,
+              size: 18,
               color: Colors.white24,
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 8),
         ],
       ),
     );
@@ -153,28 +156,25 @@ class _HomePageState extends State<HomePage> {
 
   Widget _tabItem(String label, {bool active = false, VoidCallback? onClose}) {
     return Container(
-      height: 40,
+      height: 48,
       padding: const EdgeInsets.symmetric(horizontal: 16),
       decoration: BoxDecoration(
-        color: active ? Theme.of(context).scaffoldBackgroundColor : null,
+        color: active ? const Color(0xFF0F0F0F) : Colors.transparent,
         border: active
-            ? Border(
-                top: BorderSide(
-                  color: Theme.of(context).colorScheme.primary,
-                  width: 2,
-                ),
-                left: BorderSide(color: Colors.white.withValues(alpha: 0.05)),
-                right: BorderSide(color: Colors.white.withValues(alpha: 0.05)),
+            ? const Border(
+                top: BorderSide(color: Color(0xFF7B88FF), width: 2),
+                left: BorderSide(color: Color(0xFF1F1F1F)),
+                right: BorderSide(color: Color(0xFF1F1F1F)),
               )
             : null,
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
+          const Icon(
             Icons.description_outlined,
             size: 14,
-            color: active ? Colors.white70 : Colors.white24,
+            color: Colors.white30,
           ),
           const SizedBox(width: 8),
           Text(
@@ -186,12 +186,12 @@ class _HomePageState extends State<HomePage> {
             ),
           ),
           if (onClose != null) ...[
-            const SizedBox(width: 8),
+            const SizedBox(width: 12),
             InkWell(
               onTap: onClose,
               child: const Icon(
                 Icons.close_rounded,
-                size: 12,
+                size: 10,
                 color: Colors.white24,
               ),
             ),
@@ -206,40 +206,45 @@ class _HomePageState extends State<HomePage> {
     SyncSnapshot snapshot,
   ) {
     return Container(
-      height: 32,
-      padding: const EdgeInsets.symmetric(horizontal: 16),
+      height: 44,
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      decoration: const BoxDecoration(
+        border: Border(bottom: BorderSide(color: Color(0xFF1F1F1F))),
+      ),
       child: Row(
         children: [
           const Text(
             'LEXICON EDITOR',
             style: TextStyle(
-              fontSize: 10,
+              fontSize: 11,
               fontWeight: FontWeight.w900,
-              letterSpacing: 1,
-              color: Color(0xFFA267F6), // Secondary Purple
+              letterSpacing: 2,
+              color: Color(0xFF7B88FF),
             ),
           ),
-          const SizedBox(width: 16),
-          _breadcrumbItem('File'),
-          _breadcrumbItem('Edit'),
-          _breadcrumbItem('View'),
-          _breadcrumbItem('Go'),
-          _breadcrumbItem('Tools'),
-          _breadcrumbItem('Help'),
+          const SizedBox(width: 48),
+          _menuItem('File'),
+          _menuItem('Edit', active: true),
+          _menuItem('View'),
+          _menuItem('Go'),
+          _menuItem('Tools'),
+          _menuItem('Help'),
         ],
       ),
     );
   }
 
-  Widget _breadcrumbItem(String label) {
+  Widget _menuItem(String label, {bool active = false}) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8),
+      padding: const EdgeInsets.only(right: 24),
       child: Text(
         label,
-        style: const TextStyle(
-          fontSize: 11,
-          color: Colors.white24,
-          fontWeight: FontWeight.w500,
+        style: TextStyle(
+          fontSize: 12,
+          color: active ? Colors.white : Colors.white24,
+          fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+          decoration: active ? TextDecoration.underline : null,
+          decorationThickness: 1,
         ),
       ),
     );
@@ -290,7 +295,7 @@ class _HomePageState extends State<HomePage> {
 
   Widget _buildSidebar(BuildContext context) {
     return Container(
-      color: Theme.of(context).cardTheme.color,
+      color: const Color(0xFF131313),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -307,12 +312,7 @@ class _HomePageState extends State<HomePage> {
             active: _currentView == HomeView.history,
             onTap: () => setState(() => _currentView = HomeView.history),
           ),
-          _sidebarItem(
-            Icons.hub_outlined,
-            'Neural Map',
-            active: _currentView == HomeView.graph,
-            onTap: () => setState(() => _currentView = HomeView.graph),
-          ),
+          _sidebarItem(Icons.search_rounded, 'Search', active: false),
           _sidebarItem(
             Icons.settings_outlined,
             'Settings',
@@ -321,21 +321,28 @@ class _HomePageState extends State<HomePage> {
           ),
           _sidebarItem(Icons.archive_outlined, 'Archive'),
           const SizedBox(height: 32),
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: Row(
               children: [
-                Text(
+                const Text(
                   'PERSONAL VAULT',
                   style: TextStyle(
-                    fontSize: 9,
+                    fontSize: 10,
                     fontWeight: FontWeight.w900,
-                    letterSpacing: 1,
+                    letterSpacing: 1.5,
                     color: Colors.white24,
                   ),
                 ),
-                Spacer(),
-                Icon(Icons.add_box_outlined, size: 14, color: Colors.white24),
+                const Spacer(),
+                InkWell(
+                  onTap: () => setState(() => _activeNoteId = 'new'),
+                  child: const Icon(
+                    Icons.add_rounded,
+                    size: 16,
+                    color: Colors.white24,
+                  ),
+                ),
               ],
             ),
           ),
@@ -343,37 +350,30 @@ class _HomePageState extends State<HomePage> {
           const Divider(),
           Padding(
             padding: const EdgeInsets.all(16),
-            child: Container(
-              width: double.infinity,
-              height: 40,
-              decoration: BoxDecoration(
-                color: Theme.of(
-                  context,
-                ).colorScheme.primary.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(
-                  color: Theme.of(
-                    context,
-                  ).colorScheme.primary.withValues(alpha: 0.2),
+            child: InkWell(
+              onTap: () => setState(() => _activeNoteId = 'new'),
+              borderRadius: BorderRadius.circular(8),
+              child: Container(
+                width: double.infinity,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF7B88FF).withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: const Color(0xFF7B88FF).withOpacity(0.3),
+                  ),
                 ),
-              ),
-              child: InkWell(
-                onTap: () => setState(() => _activeNoteId = 'new'),
-                child: Row(
+                child: const Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(
-                      Icons.add_rounded,
-                      size: 18,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                    const SizedBox(width: 8),
+                    Icon(Icons.add_rounded, size: 18, color: Color(0xFF7B88FF)),
+                    SizedBox(width: 8),
                     Text(
                       'New Entry',
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w800,
-                        color: Theme.of(context).colorScheme.primary,
+                        color: Color(0xFF7B88FF),
                       ),
                     ),
                   ],
@@ -389,13 +389,13 @@ class _HomePageState extends State<HomePage> {
   Widget _buildBranding() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 24, 20, 32),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
                   'THE ARCHIVIST',
                   style: TextStyle(
                     fontWeight: FontWeight.w900,
@@ -403,21 +403,26 @@ class _HomePageState extends State<HomePage> {
                     letterSpacing: 1.5,
                   ),
                 ),
-                Text(
-                  'Primary Vault',
-                  style: TextStyle(
-                    fontSize: 10,
-                    color: Colors.white.withValues(alpha: 0.2),
-                    fontWeight: FontWeight.w600,
-                  ),
+              ),
+              CircleAvatar(
+                radius: 14,
+                backgroundColor: const Color(0xFF2DD4BF),
+                child: const Icon(
+                  Icons.person,
+                  size: 16,
+                  color: Colors.black87,
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
-          const CircleAvatar(
-            radius: 14,
-            backgroundColor: Color(0xFF2DD4BF),
-            child: Icon(Icons.person, size: 16, color: Colors.black87),
+          const SizedBox(height: 4),
+          const Text(
+            'Primary Vault',
+            style: TextStyle(
+              fontSize: 10,
+              color: Colors.white24,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ],
       ),
@@ -438,7 +443,7 @@ class _HomePageState extends State<HomePage> {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           decoration: BoxDecoration(
-            color: active ? Colors.white.withValues(alpha: 0.05) : null,
+            color: active ? Colors.white.withOpacity(0.05) : null,
             borderRadius: BorderRadius.circular(8),
           ),
           child: Row(
@@ -465,24 +470,29 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _buildFileTree() {
-    final notes = widget.controller.snapshot.notes;
+    final notes = widget.controller.snapshot.notes
+        .where((n) => n.type == 'note')
+        .toList();
     return ListView(
+      padding: const EdgeInsets.only(top: 8),
       children: [
-        _treeFolder('Projects'),
-        ...notes.take(5).map((n) => _treeItem(n.content.title, n.id)),
+        _treeFolder('Projects', open: true),
+        ...notes.map((n) => _treeItem(n.asNote?.title ?? 'Untitled', n.id)),
         _treeFolder('Archive'),
         _treeItem('Daily Journal', 'journal'),
       ],
     );
   }
 
-  Widget _treeFolder(String name) {
+  Widget _treeFolder(String name, {bool open = false}) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Row(
         children: [
-          const Icon(
-            Icons.keyboard_arrow_down_rounded,
+          Icon(
+            open
+                ? Icons.keyboard_arrow_down_rounded
+                : Icons.keyboard_arrow_right_rounded,
             size: 16,
             color: Colors.white24,
           ),
@@ -493,8 +503,9 @@ class _HomePageState extends State<HomePage> {
             name,
             style: const TextStyle(
               fontSize: 12,
-              fontWeight: FontWeight.w600,
+              fontWeight: FontWeight.w700,
               color: Colors.white54,
+              letterSpacing: 0.5,
             ),
           ),
         ],
@@ -506,16 +517,25 @@ class _HomePageState extends State<HomePage> {
     final active = _activeNoteId == id;
     return InkWell(
       onTap: () => setState(() => _activeNoteId = id),
-      child: Padding(
-        padding: const EdgeInsets.only(left: 44, top: 4, bottom: 4, right: 16),
+      child: Container(
+        height: 32,
+        margin: const EdgeInsets.only(left: 44, right: 12, bottom: 2),
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        decoration: BoxDecoration(
+          color: active ? const Color(0xFF7B88FF).withOpacity(0.1) : null,
+          borderRadius: BorderRadius.circular(4),
+          border: active
+              ? Border.all(
+                  color: const Color(0xFF7B88FF).withOpacity(0.2),
+                )
+              : null,
+        ),
         child: Row(
           children: [
             Icon(
               Icons.description_outlined,
               size: 14,
-              color: active
-                  ? Theme.of(context).colorScheme.primary
-                  : Colors.white24,
+              color: active ? const Color(0xFF7B88FF) : Colors.white24,
             ),
             const SizedBox(width: 10),
             Expanded(
@@ -525,8 +545,9 @@ class _HomePageState extends State<HomePage> {
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   fontSize: 12,
-                  fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+                  fontWeight: active ? FontWeight.w800 : FontWeight.w500,
                   color: active ? Colors.white : Colors.white54,
+                  letterSpacing: -0.2,
                 ),
               ),
             ),
@@ -538,10 +559,13 @@ class _HomePageState extends State<HomePage> {
 
   Widget _buildInspector(BuildContext context) {
     if (_activeNoteId == null || _activeNoteId == 'new') {
-      return const Center(
-        child: Text(
-          'Target an indexed note to inspect',
-          style: TextStyle(color: Colors.white10),
+      return Container(
+        color: const Color(0xFF131313),
+        child: const Center(
+          child: Text(
+            'Target an indexed note to inspect',
+            style: TextStyle(color: Colors.white10, fontSize: 11),
+          ),
         ),
       );
     }
@@ -551,18 +575,11 @@ class _HomePageState extends State<HomePage> {
       orElse: () => null,
     );
 
-    if (note == null) {
-      return const Center(
-        child: Text(
-          'Indexing active note...',
-          style: TextStyle(color: Colors.white10),
-        ),
-      );
-    }
+    if (note == null) return const SizedBox();
 
     return Container(
-      color: Theme.of(context).cardTheme.color,
-      padding: const EdgeInsets.all(20),
+      color: const Color(0xFF131313),
+      padding: const EdgeInsets.all(24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -571,13 +588,9 @@ class _HomePageState extends State<HomePage> {
             style: TextStyle(
               fontSize: 11,
               fontWeight: FontWeight.w900,
-              letterSpacing: 1.5,
+              letterSpacing: 2,
               color: Colors.white24,
             ),
-          ),
-          const Text(
-            'Contextual Details',
-            style: TextStyle(fontSize: 10, color: Colors.white10),
           ),
           const SizedBox(height: 24),
           const Row(
@@ -587,57 +600,61 @@ class _HomePageState extends State<HomePage> {
                 style: TextStyle(
                   fontSize: 10,
                   fontWeight: FontWeight.w900,
-                  color: Colors.white,
+                  color: Color(0xFF7B88FF),
                 ),
               ),
-              SizedBox(width: 16),
+              SizedBox(width: 24),
               Text(
                 'LINKS',
                 style: TextStyle(fontSize: 10, color: Colors.white24),
               ),
-              SizedBox(width: 16),
+              SizedBox(width: 24),
               Text(
                 'OUTLINE',
                 style: TextStyle(fontSize: 10, color: Colors.white24),
               ),
             ],
           ),
-          const SizedBox(height: 16),
-          const Divider(),
-          const SizedBox(height: 24),
+          const Divider(height: 32),
           _inspectorField('Created', _formatDate(note.createdAt)),
           _inspectorField('Last Modified', 'Just now'),
-          const SizedBox(height: 24),
+          const SizedBox(height: 16),
           const Text(
             'Keywords',
             style: TextStyle(fontSize: 10, color: Colors.white24),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 12),
           Wrap(
             spacing: 8,
+            runSpacing: 8,
             children: [
               _inspectorTag('Vault', active: true),
-              _inspectorTag('Relix'),
+              _inspectorTag('Neural'),
               _inspectorTag('Distributed'),
             ],
           ),
-          const SizedBox(height: 32),
+          const SizedBox(height: 40),
           const Text(
             'GRAPH PREVIEW',
             style: TextStyle(
-              fontSize: 9,
-              color: Colors.white24,
+              fontSize: 10,
+              fontWeight: FontWeight.w900,
               letterSpacing: 1,
+              color: Colors.white24,
             ),
           ),
           const SizedBox(height: 16),
           _buildGraphPlaceholder(),
-          const SizedBox(height: 32),
+          const SizedBox(height: 40),
           const Text(
             '2 BACKLINKS',
-            style: TextStyle(fontSize: 9, color: Colors.white24),
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w900,
+              color: Colors.white24,
+            ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 16),
           _backlinkItem('Index of Cognitive Tools'),
           _backlinkItem('Weekly Research Log #4'),
           const Spacer(),
@@ -645,12 +662,12 @@ class _HomePageState extends State<HomePage> {
             children: [
               Text(
                 'Show raw JSON metadata',
-                style: TextStyle(fontSize: 10, color: Colors.white24),
+                style: TextStyle(fontSize: 11, color: Colors.white24),
               ),
               Spacer(),
               Icon(
                 Icons.arrow_forward_rounded,
-                size: 12,
+                size: 14,
                 color: Colors.white24,
               ),
             ],
@@ -662,28 +679,33 @@ class _HomePageState extends State<HomePage> {
 
   Widget _inspectorField(String label, String value) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.only(bottom: 20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             label,
-            style: const TextStyle(fontSize: 10, color: Colors.white24),
+            style: const TextStyle(
+              fontSize: 10,
+              color: Colors.white24,
+              fontWeight: FontWeight.w600,
+            ),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 6),
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.all(8),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.2),
-              borderRadius: BorderRadius.circular(4),
+              color: Colors.black.withOpacity(0.3),
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: const Color(0xFF1F1F1F)),
             ),
             child: Text(
               value,
               style: const TextStyle(
                 fontFamily: 'monospace',
-                fontSize: 11,
-                color: Colors.white54,
+                fontSize: 12,
+                color: Colors.white70,
               ),
             ),
           ),
@@ -697,14 +719,14 @@ class _HomePageState extends State<HomePage> {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
         color: active
-            ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.2)
+            ? Theme.of(context).colorScheme.primary.withOpacity(0.2)
             : Colors.white10,
         borderRadius: BorderRadius.circular(4),
         border: active
             ? Border.all(
                 color: Theme.of(
                   context,
-                ).colorScheme.primary.withValues(alpha: 0.3),
+                ).colorScheme.primary.withOpacity(0.3),
               )
             : null,
       ),
@@ -726,9 +748,9 @@ class _HomePageState extends State<HomePage> {
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.02),
+        color: Colors.white.withOpacity(0.02),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.02)),
+        border: Border.all(color: Colors.white.withOpacity(0.02)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -746,7 +768,7 @@ class _HomePageState extends State<HomePage> {
             '"...essential to explore this system for the next sprint..."',
             style: TextStyle(
               fontSize: 10,
-              color: Colors.white.withValues(alpha: 0.1),
+              color: Colors.white.withOpacity(0.1),
               fontStyle: FontStyle.italic,
             ),
           ),
@@ -757,20 +779,22 @@ class _HomePageState extends State<HomePage> {
 
   Widget _buildGraphPlaceholder() {
     return Container(
-      height: 180,
+      height: 200,
       width: double.infinity,
       decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.3),
+        color: Colors.black.withOpacity(0.2),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.02)),
+        border: Border.all(color: const Color(0xFF1F1F1F)),
       ),
-      child: CustomPaint(
-        painter: _GraphPainter(Theme.of(context).colorScheme.primary),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: CustomPaint(painter: _GraphPainter(const Color(0xFF7B88FF))),
       ),
     );
   }
 
   String _formatDate(int seconds) {
+    if (seconds <= 0) return '2024-05-12T14:20:00Z';
     final date = DateTime.fromMillisecondsSinceEpoch(seconds * 1000);
     return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}T${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}:00Z';
   }
@@ -782,50 +806,53 @@ class _GraphPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.05)
+    final gridPaint = Paint()
+      ..color = Colors.white.withOpacity(0.03)
       ..strokeWidth = 1;
 
-    // Draw grid
     for (double i = 0; i < size.width; i += 20) {
-      canvas.drawLine(Offset(i, 0), Offset(i, size.height), paint);
+      canvas.drawLine(Offset(i, 0), Offset(i, size.height), gridPaint);
     }
     for (double i = 0; i < size.height; i += 20) {
-      canvas.drawLine(Offset(0, i), Offset(size.width, i), paint);
+      canvas.drawLine(Offset(0, i), Offset(size.width, i), gridPaint);
     }
 
     final rng = Random(42);
     final nodes = List.generate(
-      5,
-      (_) =>
-          Offset(rng.nextDouble() * size.width, rng.nextDouble() * size.height),
+      6,
+      (_) => Offset(
+        10 + rng.nextDouble() * (size.width - 20),
+        10 + rng.nextDouble() * (size.height - 20),
+      ),
     );
 
-    final nodePaint = Paint()..color = Colors.white.withValues(alpha: 0.5);
     final linePaint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.1)
+      ..color = Colors.white.withOpacity(0.1)
       ..strokeWidth = 1;
 
     for (int i = 0; i < nodes.length; i++) {
       for (int j = i + 1; j < nodes.length; j++) {
-        if (rng.nextDouble() > 0.6)
+        if (rng.nextDouble() > 0.4) {
           canvas.drawLine(nodes[i], nodes[j], linePaint);
+        }
       }
     }
 
-    for (final node in nodes) {
-      canvas.drawCircle(node, 3, nodePaint);
+    for (int i = 0; i < nodes.length; i++) {
+      if (i == 0) {
+        // Focus node
+        canvas.drawCircle(
+          nodes[i],
+          6,
+          Paint()..color = primary.withOpacity(0.2),
+        );
+        canvas.drawCircle(nodes[i], 3, Paint()..color = primary);
+      } else {
+        canvas.drawCircle(nodes[i], 2, Paint()..color = Colors.white24);
+      }
     }
-
-    // Highlight center node
-    canvas.drawCircle(nodes[0], 5, Paint()..color = primary);
-    canvas.drawCircle(
-      nodes[0],
-      12,
-      Paint()..color = primary.withValues(alpha: 0.2),
-    );
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+  bool shouldRepaint(CustomPainter oldDelegate) => false;
 }

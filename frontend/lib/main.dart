@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 import 'pages/home_page.dart';
 import 'services/relix_controller.dart';
@@ -29,7 +30,7 @@ class RelixApp extends StatelessWidget {
           title: 'Relix',
           debugShowCheckedModeBanner: false,
           themeMode: ThemeMode.dark,
-          darkTheme: ThemeData(
+          theme: ThemeData(
             useMaterial3: true,
             brightness: Brightness.dark,
             colorScheme: ColorScheme.fromSeed(
@@ -39,44 +40,28 @@ class RelixApp extends StatelessWidget {
               onSurface: Colors.white,
               primary: primary,
               secondary: const Color(0xFFA267F6),
+              tertiary: const Color(0xFF2DD4BF),
             ),
             scaffoldBackgroundColor: background,
-            fontFamily: 'Inter',
-            textTheme: const TextTheme(
-              headlineLarge: TextStyle(
-                fontWeight: FontWeight.w800,
-                letterSpacing: -1,
-                fontSize: 32,
-                color: Colors.white,
+            textTheme: GoogleFonts.interTextTheme(
+              const TextTheme(
+                headlineLarge: TextStyle(
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: -1.5,
+                  fontSize: 32,
+                  color: Colors.white,
+                ),
+                headlineMedium: TextStyle(
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: -1,
+                  color: Colors.white,
+                ),
+                bodyMedium: TextStyle(
+                  fontSize: 14,
+                  height: 1.6,
+                  color: Colors.white70,
+                ),
               ),
-              headlineMedium: TextStyle(
-                fontWeight: FontWeight.w700,
-                letterSpacing: -0.5,
-                fontSize: 24,
-                color: Colors.white,
-              ),
-              titleLarge: TextStyle(
-                fontWeight: FontWeight.w600,
-                fontSize: 18,
-                color: Colors.white,
-              ),
-              bodyMedium: TextStyle(
-                fontSize: 14,
-                color: Colors.white70,
-                height: 1.6,
-              ),
-              labelSmall: TextStyle(
-                fontFamily: 'monospace',
-                fontSize: 10,
-                letterSpacing: 2,
-                fontWeight: FontWeight.w900,
-                color: Colors.white24,
-              ),
-            ),
-            dividerTheme: const DividerThemeData(
-              color: borderColor,
-              thickness: 1,
-              space: 1,
             ),
             cardTheme: CardThemeData(
               color: surface,
@@ -86,16 +71,26 @@ class RelixApp extends StatelessWidget {
                 side: const BorderSide(color: borderColor),
               ),
             ),
-            navigationBarTheme: NavigationBarThemeData(
+            dividerTheme: const DividerThemeData(
+              space: 1,
+              thickness: 1,
+              color: borderColor,
+            ),
+            appBarTheme: const AppBarTheme(
               backgroundColor: surface,
-              indicatorColor: primary.withValues(alpha: 0.1),
-              labelTextStyle: WidgetStateProperty.all(
-                const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+              elevation: 0,
+              centerTitle: false,
+              titleTextStyle: TextStyle(
+                fontFamily: 'monospace',
+                fontWeight: FontWeight.w900,
+                letterSpacing: 2,
+                fontSize: 12,
+                color: primary,
               ),
             ),
             inputDecorationTheme: InputDecorationTheme(
               filled: true,
-              fillColor: Colors.black.withValues(alpha: 0.3),
+              fillColor: Colors.black.withOpacity(0.3),
               contentPadding: const EdgeInsets.symmetric(
                 horizontal: 16,
                 vertical: 12,
@@ -112,7 +107,7 @@ class RelixApp extends StatelessWidget {
                 borderRadius: BorderRadius.circular(8),
                 borderSide: const BorderSide(color: primary, width: 1.5),
               ),
-              hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.2)),
+              hintStyle: TextStyle(color: Colors.white.withOpacity(0.2)),
             ),
           ),
           home: HomePage(controller: controller),
