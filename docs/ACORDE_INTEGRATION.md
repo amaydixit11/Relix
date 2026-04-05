@@ -44,8 +44,11 @@ The ACORDE REST API currently guarantees these routes:
 - `POST /pair`
 - `GET /status`
 - `GET /events`
+- `GET /search`
+- `POST /blobs`
+- `GET /blobs/:cid`
 
-These peer and pairing routes are part of the current Relix runtime contract. The shipped client and UI already depend on them.
+These peer, search, and storage routes are part of the current Relix runtime contract. The shipped client and UI already depend on them.
 
 Relix must not assume additional REST routes unless ACORDE explicitly adds them to this contract.
 
@@ -83,6 +86,25 @@ Relix must not assume additional REST routes unless ACORDE explicitly adds them 
   - `code`
 
 These routes are required for the current web and mobile pairing UX. If ACORDE changes their request or response shapes, Relix must be updated in lockstep.
+
+`GET /search`
+
+- performs a full-text search across entries
+- parameters:
+  - `q`: search query string
+  - `type`: (optional) filter by entry type
+- returns a list of matching entries
+
+`POST /blobs`
+
+- uploads a raw blob and returns its Content Identifier (CID)
+- body: raw binary data
+- returns: `{"cid": "..."}`
+
+`GET /blobs/:cid`
+
+- retrieves a raw blob by its CID
+- returns: raw binary data
 
 ## Entry Model Contract
 
@@ -138,7 +160,6 @@ These capabilities are not part of the current ACORDE REST contract:
 - version history endpoints
 - ACL inspection endpoints
 - ACL revoke or public visibility endpoints
-- search endpoint
 
 Specifically, Relix should not depend on:
 
@@ -148,7 +169,6 @@ Specifically, Relix should not depend on:
 - `POST /entries/:id/acl`
 - `DELETE /entries/:id/acl/:peerId`
 - `PUT /entries/:id/acl/public`
-- `GET /search`
 
 If ACORDE supports any of these internally or via library APIs, Relix should still treat them as unavailable until they are part of the published REST contract.
 

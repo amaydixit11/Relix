@@ -15,10 +15,12 @@ This folder contains product, architecture, and implementation documentation for
 - [SYNC_AND_PAIRING_MODEL.md](./SYNC_AND_PAIRING_MODEL.md)
 - [ACORDE_INTEGRATION.md](./ACORDE_INTEGRATION.md)
 - [PAIRING_REACHABILITY.md](./PAIRING_REACHABILITY.md)
+- [DEVELOPER_QUICKSTART.md](./DEVELOPER_QUICKSTART.md)
 
 ## Planning History
 
 - [REMOTE_SYNC_BUILD_PLAN.md](./REMOTE_SYNC_BUILD_PLAN.md)
+- [../CHANGELOG.md](../CHANGELOG.md)
 
 ## Current Frontend Target
 

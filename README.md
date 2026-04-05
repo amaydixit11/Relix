@@ -92,6 +92,8 @@ For mobile targets, use a connected emulator/device or `flutter run -d android` 
 - [Sync And Pairing Model](./docs/SYNC_AND_PAIRING_MODEL.md)
 - [UI / UX Requirements](./docs/UI_UX_REQUIREMENTS.md)
 - [Screen Specification](./docs/SCREEN_SPECIFICATION.md)
+- [Developer Quickstart](./docs/DEVELOPER_QUICKSTART.md)
+- [Changelog](./CHANGELOG.md)
 
 ## 🗺️ Roadmap
 
