@@ -124,23 +124,28 @@ export class GraphService {
         ),
       });
 
-      // Get outlinks
-      const outlinks = entry.tags
+      // Get outlinks from tags
+      const outlinkIds = entry.tags
         .filter((t) => t.startsWith('outlink:'))
         .map((t) => t.replace('outlink:', ''));
 
-      // Get backlinks
-      const backlinks = entry.tags
-        .filter((t) => t.startsWith('backlink:'))
-        .map((t) => t.replace('backlink:', ''));
+      // Get backlinks by querying for notes that outlink to this one
+      const backlinkNotes = await acorde.listEntries<NoteContent>({ 
+        type: 'note', 
+        tag: `outlink:${id}` 
+      });
+      const backlinkIds = backlinkNotes.map(n => n.id);
 
-      const neighbors = [...new Set([...outlinks, ...backlinks])];
+      const neighbors = [...new Set([...outlinkIds, ...backlinkIds])];
 
       for (const neighborId of neighbors) {
+        // Edge type determined by direction
+        const isOutlink = outlinkIds.includes(neighborId);
+        
         edges.push({
-          source: id,
-          target: neighborId,
-          type: 'backlink',
+          source: isOutlink ? id : neighborId,
+          target: isOutlink ? neighborId : id,
+          type: 'backlink', // consistent edge type name for visualization
         });
 
         await this.traverseNeighbors(neighborId, depth - 1, visited, nodes, edges);
