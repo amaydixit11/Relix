@@ -12,6 +12,7 @@ const API_BASE =
  */
 export class AcordeClient {
   private baseUrl: string;
+  private capabilities = new Map<string, boolean>();
 
   constructor(baseUrl: string = API_BASE) {
     this.baseUrl = baseUrl;
@@ -23,6 +24,7 @@ export class AcordeClient {
    */
   setBaseUrl(url: string) {
     this.baseUrl = url;
+    this.capabilities.clear();
   }
 
   getBaseUrl() {
@@ -114,6 +116,17 @@ export class AcordeClient {
   }
 
   async searchEntries<T>(query: string, type?: EntryType): Promise<Entry<T>[]> {
+    if (!(await this.hasCapability('search'))) {
+      const entries = await this.listEntries<T>(type ? { type } : undefined);
+      const lowered = query.trim().toLowerCase();
+      if (!lowered) return entries;
+
+      return entries.filter((entry) =>
+        JSON.stringify(entry.content).toLowerCase().includes(lowered) ||
+        entry.tags.some((tag) => tag.toLowerCase().includes(lowered))
+      );
+    }
+
     const params = new URLSearchParams();
     params.set('q', query);
     if (type) params.set('type', type);
@@ -126,6 +139,7 @@ export class AcordeClient {
   }
 
   async generateInvite(): Promise<string> {
+    await this.requireCapability('invite', 'This ACORDE runtime does not expose /invite.');
     const res = await fetch(`${this.baseUrl}/invite`, { method: 'POST' });
     if (!res.ok) throw new Error(`Failed to generate invite: ${res.statusText}`);
     const data = await res.json();
@@ -133,6 +147,7 @@ export class AcordeClient {
   }
 
   async pairDevice(code: string): Promise<void> {
+    await this.requireCapability('pair', 'This ACORDE runtime does not expose /pair.');
     const res = await fetch(`${this.baseUrl}/pair`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -142,12 +157,14 @@ export class AcordeClient {
   }
 
   async getIdentity(): Promise<LocalIdentity> {
+    await this.requireCapability('identity', 'This ACORDE runtime does not expose /identity.');
     const res = await fetch(`${this.baseUrl}/identity`);
     if (!res.ok) throw new Error(`Failed to get identity: ${res.statusText}`);
     return res.json();
   }
 
   async getPeers(): Promise<PeerInfo[]> {
+    await this.requireCapability('peers', 'This ACORDE runtime does not expose /peers.');
     const res = await fetch(`${this.baseUrl}/peers`);
     if (!res.ok) throw new Error(`Failed to get peers: ${res.statusText}`);
     return res.json();
@@ -169,6 +186,7 @@ export class AcordeClient {
   }
 
   async uploadBlob(file: Blob): Promise<string> {
+    await this.requireCapability('blobs', 'This ACORDE runtime does not expose /blobs.');
     const res = await fetch(`${this.baseUrl}/blobs`, {
       method: 'POST',
       body: file,
@@ -179,9 +197,31 @@ export class AcordeClient {
   }
 
   async getBlob(cid: string): Promise<Blob> {
+    await this.requireCapability('blobs', 'This ACORDE runtime does not expose /blobs.');
     const res = await fetch(`${this.baseUrl}/blobs/${cid}`);
     if (!res.ok) throw new Error(`Blob not found: ${res.statusText}`);
     return res.blob();
+  }
+
+  async hasCapability(route: string): Promise<boolean> {
+    if (this.capabilities.has(route)) {
+      return this.capabilities.get(route)!;
+    }
+
+    try {
+      const res = await fetch(`${this.baseUrl}/${route}`, { method: 'GET' });
+      const supported = res.status !== 404;
+      this.capabilities.set(route, supported);
+      return supported;
+    } catch {
+      this.capabilities.set(route, false);
+      return false;
+    }
+  }
+
+  private async requireCapability(route: string, message: string): Promise<void> {
+    if (await this.hasCapability(route)) return;
+    throw new Error(message);
   }
 
   subscribeToEvents(
