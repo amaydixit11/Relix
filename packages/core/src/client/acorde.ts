@@ -87,8 +87,14 @@ export class AcordeClient {
     });
 
     if (!res.ok) throw new Error(`Failed to update entry: ${res.statusText}`);
-    const data = await res.json();
-    return this.decodeEntry<T>(data);
+    const data = await this.readJsonBody<Record<string, unknown>>(res);
+    if (data) {
+      return this.decodeEntry<T>(data);
+    }
+
+    // Some ACORDE builds return 200/204 with an empty body on update.
+    // Re-fetch the entry so callers still receive the updated resource.
+    return this.getEntry<T>(id);
   }
 
   async deleteEntry(id: string): Promise<void> {
@@ -255,6 +261,12 @@ export class AcordeClient {
     }
 
     return null;
+  }
+
+  private async readJsonBody<T>(res: Response): Promise<T | null> {
+    const text = await res.text();
+    if (!text.trim()) return null;
+    return JSON.parse(text) as T;
   }
 }
 
