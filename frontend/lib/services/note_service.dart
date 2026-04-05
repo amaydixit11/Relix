@@ -95,7 +95,11 @@ class NoteService {
   }
 
   Future<List<NoteEntry>> getBacklinks(String id) async {
-    return await client.searchEntries('outlink:$id');
+    return await client.listEntries(type: 'note', tag: 'outlink:$id');
+  }
+
+  Future<List<NoteEntry>> search(String query, {String? type}) async {
+    return await client.searchEntries(query, type: type);
   }
 
   Future<List<NoteEntry>> getOutlinks(String id) async {

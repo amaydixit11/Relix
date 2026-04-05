@@ -8,6 +8,7 @@ import 'note_editor_page.dart';
 import 'settings_page.dart';
 import 'graph_page.dart';
 import 'history_page.dart';
+import 'files_page.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key, required this.controller});
@@ -18,7 +19,7 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
-enum HomeView { workstation, graph, settings, history }
+enum HomeView { workstation, graph, files, settings, history }
 
 class _HomePageState extends State<HomePage> {
   String? _activeNoteId;
@@ -125,6 +126,8 @@ class _HomePageState extends State<HomePage> {
         return 'Neural Topology';
       case HomeView.settings:
         return 'Fleet Control';
+      case HomeView.files:
+        return 'File Archive';
       case HomeView.history:
         return 'TEMPORAL LOG';
       default:
@@ -232,25 +235,28 @@ class _HomePageState extends State<HomePage> {
       decoration: const BoxDecoration(
         border: Border(bottom: BorderSide(color: Color(0xFF1F1F1F))),
       ),
-      child: Row(
-        children: [
-          const Text(
-            'LEXICON EDITOR',
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w900,
-              letterSpacing: 2,
-              color: Color(0xFF7B88FF),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            const Text(
+              'LEXICON EDITOR',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 2,
+                color: Color(0xFF7B88FF),
+              ),
             ),
-          ),
-          const SizedBox(width: 48),
-          _menuItem('File'),
-          _menuItem('Edit', active: true),
-          _menuItem('View'),
-          _menuItem('Go'),
-          _menuItem('Tools'),
-          _menuItem('Help'),
-        ],
+            const SizedBox(width: 48),
+            _menuItem('File'),
+            _menuItem('Edit', active: true),
+            _menuItem('View'),
+            _menuItem('Go'),
+            _menuItem('Tools'),
+            _menuItem('Help'),
+          ],
+        ),
       ),
     );
   }
@@ -277,6 +283,8 @@ class _HomePageState extends State<HomePage> {
         return GraphPage(controller: widget.controller);
       case HomeView.settings:
         return SettingsPage(controller: widget.controller);
+      case HomeView.files:
+        return FilesPage(controller: widget.controller);
       case HomeView.history:
         return HistoryPage(controller: widget.controller);
       case HomeView.workstation:
@@ -329,6 +337,12 @@ class _HomePageState extends State<HomePage> {
             onTap: () => setState(() => _currentView = HomeView.history),
           ),
           _sidebarItem(Icons.search_rounded, 'Search', active: false),
+          _sidebarItem(
+            Icons.folder_open_rounded,
+            'Files',
+            active: _currentView == HomeView.files,
+            onTap: () => setState(() => _currentView = HomeView.files),
+          ),
           _sidebarItem(
             Icons.settings_outlined,
             'Settings',

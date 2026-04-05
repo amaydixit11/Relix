@@ -23,6 +23,7 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
   late TextEditingController _titleController;
   late TextEditingController _bodyController;
   late TextEditingController _tagsController;
+  int? _baselineUpdatedAt;
   bool _saving = false;
   bool _isPreview = false;
   List<NoteEntry> _backlinks = [];
@@ -36,6 +37,8 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
     _tagsController = TextEditingController(
       text: widget.existing?.tags.join(', ') ?? '',
     );
+    _baselineUpdatedAt =
+        widget.existing?.baselineUpdatedAt ?? widget.existing?.updatedAt;
     if (widget.existing != null) {
       _loadBacklinks();
     }
@@ -305,6 +308,32 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
 
     if (title.isEmpty) return;
 
+    if (widget.existing != null &&
+        widget.existing!.id.startsWith('local-') == false) {
+      final latest = await widget.controller.fetchLatestRemoteNote(
+        widget.existing!.id,
+      );
+      if (latest != null &&
+          _baselineUpdatedAt != null &&
+          latest.updatedAt > _baselineUpdatedAt!) {
+        final resolution = await _showConflictDialog(latest);
+        if (resolution == 'cancel') return;
+        if (resolution == 'discard') {
+          _close();
+          return;
+        }
+        if (resolution == 'load_remote') {
+          _titleController.text = latest.asNote?.title ?? _titleController.text;
+          _bodyController.text = latest.asNote?.body ?? _bodyController.text;
+          _tagsController.text = latest.tags.join(', ');
+          setState(() {
+            _baselineUpdatedAt = latest.updatedAt;
+          });
+          return;
+        }
+      }
+    }
+
     setState(() => _saving = true);
     try {
       if (widget.existing == null) {
@@ -321,6 +350,7 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
           tags: tags,
         );
       }
+      _baselineUpdatedAt = DateTime.now().millisecondsSinceEpoch ~/ 1000;
       if (mounted) _close();
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -357,6 +387,44 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
       await widget.controller.deleteNote(widget.existing!.id);
       _close();
     }
+  }
+
+  Future<String> _showConflictDialog(NoteEntry latest) async {
+    final res = await showDialog<String>(
+      context: context,
+      builder: (c) => AlertDialog(
+        backgroundColor: const Color(0xFF0F0F0F),
+        title: const Text('CONFLICT_DETECTED', style: TextStyle(fontSize: 12)),
+        content: Text(
+          'SERVER_VERSION_NEWER (ID: ${latest.id}).\n'
+          'REMOTE_TS: ${latest.updatedAt}\n'
+          'LOCAL_BL: $_baselineUpdatedAt\n\n'
+          'PROCEED_WITH_OVERWRITE?',
+          style: const TextStyle(fontSize: 14, fontFamily: 'monospace'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c, 'cancel'),
+            child: const Text('CANCEL'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(c, 'discard'),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('DISCARD_LOCAL'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(c, 'overwrite'),
+            style: TextButton.styleFrom(foregroundColor: Colors.orange),
+            child: const Text('OVERWRITE_REMOTE'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(c, 'load_remote'),
+            child: const Text('LOAD_REMOTE_COPY'),
+          ),
+        ],
+      ),
+    );
+    return res ?? 'cancel';
   }
 
   void _close() {

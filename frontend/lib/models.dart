@@ -130,6 +130,7 @@ class NoteEntry {
     required this.deleted,
     required this.owner,
     this.pendingSync = false,
+    this.baselineUpdatedAt,
   });
 
   final String id;
@@ -138,6 +139,7 @@ class NoteEntry {
   final List<String> tags;
   final int createdAt;
   final int updatedAt;
+  final int? baselineUpdatedAt;
   final bool deleted;
   final String owner;
   final bool pendingSync;
@@ -149,6 +151,7 @@ class NoteEntry {
     List<String>? tags,
     int? createdAt,
     int? updatedAt,
+    int? baselineUpdatedAt,
     bool? deleted,
     String? owner,
     bool? pendingSync,
@@ -160,6 +163,7 @@ class NoteEntry {
       tags: tags ?? this.tags,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
+      baselineUpdatedAt: baselineUpdatedAt ?? this.baselineUpdatedAt,
       deleted: deleted ?? this.deleted,
       owner: owner ?? this.owner,
       pendingSync: pendingSync ?? this.pendingSync,
@@ -173,6 +177,7 @@ class NoteEntry {
     'tags': tags,
     'created_at': createdAt,
     'updated_at': updatedAt,
+    'baseline_updated_at': baselineUpdatedAt,
     'deleted': deleted,
     'owner': owner,
     'pending_sync': pendingSync,
@@ -207,6 +212,7 @@ class NoteEntry {
       tags: ((json['tags'] as List?) ?? const []).cast<String>(),
       createdAt: (json['created_at'] ?? 0) as int,
       updatedAt: (json['updated_at'] ?? 0) as int,
+      baselineUpdatedAt: json['baseline_updated_at'] as int?,
       deleted: (json['deleted'] ?? false) as bool,
       owner: (json['owner'] ?? '') as String,
       pendingSync: (json['pending_sync'] ?? false) as bool,
