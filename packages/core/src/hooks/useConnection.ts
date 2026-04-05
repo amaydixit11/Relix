@@ -1,3 +1,5 @@
+"use client";
+
 import { Fragment, createElement, useEffect, useSyncExternalStore, type ReactNode } from 'react';
 import { connectionService } from '../services/ConnectionService';
 

@@ -1,3 +1,5 @@
+'use client';
+
 import { ReactNode } from 'react';
 import { NavRail } from '../Sidebar/NavRail';
 import { FileTree } from '../FileTree/FileTree';
