@@ -7,6 +7,7 @@ import 'notes_page.dart';
 import 'note_editor_page.dart';
 import 'settings_page.dart';
 import 'graph_page.dart';
+import 'history_page.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key, required this.controller});
@@ -22,11 +23,31 @@ enum HomeView { workstation, graph, settings, history }
 class _HomePageState extends State<HomePage> {
   String? _activeNoteId;
   HomeView _currentView = HomeView.workstation;
+  GraphData? _activeGraphData;
 
   @override
   void initState() {
     super.initState();
     widget.controller.addListener(_onStateChanged);
+  }
+
+  void _onActiveNoteChanged(String? id) {
+    setState(() {
+      _activeNoteId = id;
+      _activeGraphData = null;
+    });
+    if (id != null && id != 'new') {
+      _loadActiveGraph(id);
+    }
+  }
+
+  Future<void> _loadActiveGraph(String id) async {
+    try {
+      final data = await widget.controller.graph.getNeighbors(id, depth: 1);
+      if (mounted && _activeNoteId == id) {
+        setState(() => _activeGraphData = data);
+      }
+    } catch (_) {}
   }
 
   @override
@@ -105,7 +126,7 @@ class _HomePageState extends State<HomePage> {
       case HomeView.settings:
         return 'Fleet Control';
       case HomeView.history:
-        return 'Temporal Log';
+        return 'TEMPORAL LOG';
       default:
         return 'Workstation';
     }
@@ -135,7 +156,7 @@ class _HomePageState extends State<HomePage> {
                   ? 'New Trace.md'
                   : '${activeNote?.asNote?.title ?? 'Refreshing'}.md',
               active: true,
-              onClose: () => setState(() => _activeNoteId = null),
+              onClose: () => _onActiveNoteChanged(null),
             ),
           if (_activeNoteId == null)
             _tabItem('Neural Repository', active: true),
@@ -257,23 +278,18 @@ class _HomePageState extends State<HomePage> {
       case HomeView.settings:
         return SettingsPage(controller: widget.controller);
       case HomeView.history:
-        return const Center(
-          child: Text(
-            'Temporal Logs Loading...',
-            style: TextStyle(color: Colors.white12),
-          ),
-        );
+        return HistoryPage(controller: widget.controller);
       case HomeView.workstation:
         if (_activeNoteId == 'new') {
           return NoteEditorPage(
             controller: widget.controller,
-            onClose: () => setState(() => _activeNoteId = null),
+            onClose: () => _onActiveNoteChanged(null),
           );
         }
         if (_activeNoteId == null) {
           return NotesPage(
             controller: widget.controller,
-            onNoteSelected: (id) => setState(() => _activeNoteId = id),
+            onNoteSelected: _onActiveNoteChanged,
           );
         }
         final activeNote = widget.controller.snapshot.notes
@@ -282,12 +298,12 @@ class _HomePageState extends State<HomePage> {
         if (activeNote == null) {
           return NotesPage(
             controller: widget.controller,
-            onNoteSelected: (id) => setState(() => _activeNoteId = id),
+            onNoteSelected: _onActiveNoteChanged,
           );
         }
         return NoteEditorPage(
           controller: widget.controller,
-          onClose: () => setState(() => _activeNoteId = null),
+          onClose: () => _onActiveNoteChanged(null),
           existing: activeNote,
         );
     }
@@ -336,7 +352,7 @@ class _HomePageState extends State<HomePage> {
                 ),
                 const Spacer(),
                 InkWell(
-                  onTap: () => setState(() => _activeNoteId = 'new'),
+                  onTap: () => _onActiveNoteChanged('new'),
                   child: const Icon(
                     Icons.add_rounded,
                     size: 16,
@@ -351,7 +367,7 @@ class _HomePageState extends State<HomePage> {
           Padding(
             padding: const EdgeInsets.all(16),
             child: InkWell(
-              onTap: () => setState(() => _activeNoteId = 'new'),
+              onTap: () => _onActiveNoteChanged('new'),
               borderRadius: BorderRadius.circular(8),
               child: Container(
                 width: double.infinity,
@@ -516,7 +532,7 @@ class _HomePageState extends State<HomePage> {
   Widget _treeItem(String title, String id) {
     final active = _activeNoteId == id;
     return InkWell(
-      onTap: () => setState(() => _activeNoteId = id),
+      onTap: () => _onActiveNoteChanged(id),
       child: Container(
         height: 32,
         margin: const EdgeInsets.only(left: 44, right: 12, bottom: 2),
@@ -525,9 +541,7 @@ class _HomePageState extends State<HomePage> {
           color: active ? const Color(0xFF7B88FF).withOpacity(0.1) : null,
           borderRadius: BorderRadius.circular(4),
           border: active
-              ? Border.all(
-                  color: const Color(0xFF7B88FF).withOpacity(0.2),
-                )
+              ? Border.all(color: const Color(0xFF7B88FF).withOpacity(0.2))
               : null,
         ),
         child: Row(
@@ -724,9 +738,7 @@ class _HomePageState extends State<HomePage> {
         borderRadius: BorderRadius.circular(4),
         border: active
             ? Border.all(
-                color: Theme.of(
-                  context,
-                ).colorScheme.primary.withOpacity(0.3),
+                color: Theme.of(context).colorScheme.primary.withOpacity(0.3),
               )
             : null,
       ),
@@ -778,6 +790,28 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _buildGraphPlaceholder() {
+    if (_activeGraphData == null) {
+      return Container(
+        height: 200,
+        width: double.infinity,
+        decoration: BoxDecoration(
+          color: Colors.black.withOpacity(0.2),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFF1F1F1F)),
+        ),
+        child: const Center(
+          child: SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: Colors.white10,
+            ),
+          ),
+        ),
+      );
+    }
+
     return Container(
       height: 200,
       width: double.infinity,
@@ -788,7 +822,9 @@ class _HomePageState extends State<HomePage> {
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(12),
-        child: CustomPaint(painter: _GraphPainter(const Color(0xFF7B88FF))),
+        child: CustomPaint(
+          painter: _GraphPainter(const Color(0xFF7B88FF), _activeGraphData!),
+        ),
       ),
     );
   }
@@ -801,8 +837,9 @@ class _HomePageState extends State<HomePage> {
 }
 
 class _GraphPainter extends CustomPainter {
-  _GraphPainter(this.primary);
+  _GraphPainter(this.primary, this.data);
   final Color primary;
+  final GraphData data;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -817,42 +854,50 @@ class _GraphPainter extends CustomPainter {
       canvas.drawLine(Offset(0, i), Offset(size.width, i), gridPaint);
     }
 
-    final rng = Random(42);
-    final nodes = List.generate(
-      6,
-      (_) => Offset(
-        10 + rng.nextDouble() * (size.width - 20),
-        10 + rng.nextDouble() * (size.height - 20),
-      ),
-    );
+    if (data.nodes.isEmpty) return;
+
+    final center = Offset(size.width / 2, size.height / 2);
+    final nodePositions = <String, Offset>{};
+
+    // Focus node at center
+    final focusNode = data.nodes.first;
+    nodePositions[focusNode.id] = center;
+
+    // Neighbors in a circle
+    final neighborNodes = data.nodes.skip(1).toList();
+    for (int i = 0; i < neighborNodes.length; i++) {
+      final angle = (2 * pi / neighborNodes.length) * i;
+      final radius = min(size.width, size.height) * 0.35;
+      nodePositions[neighborNodes[i].id] = Offset(
+        center.dx + radius * cos(angle),
+        center.dy + radius * sin(angle),
+      );
+    }
 
     final linePaint = Paint()
       ..color = Colors.white.withOpacity(0.1)
       ..strokeWidth = 1;
 
-    for (int i = 0; i < nodes.length; i++) {
-      for (int j = i + 1; j < nodes.length; j++) {
-        if (rng.nextDouble() > 0.4) {
-          canvas.drawLine(nodes[i], nodes[j], linePaint);
-        }
+    for (final edge in data.edges) {
+      final p1 = nodePositions[edge.source];
+      final p2 = nodePositions[edge.target];
+      if (p1 != null && p2 != null) {
+        canvas.drawLine(p1, p2, linePaint);
       }
     }
 
-    for (int i = 0; i < nodes.length; i++) {
-      if (i == 0) {
-        // Focus node
-        canvas.drawCircle(
-          nodes[i],
-          6,
-          Paint()..color = primary.withOpacity(0.2),
-        );
-        canvas.drawCircle(nodes[i], 3, Paint()..color = primary);
+    for (final nodeId in nodePositions.keys) {
+      final pos = nodePositions[nodeId]!;
+      final isFocus = nodeId == focusNode.id;
+      if (isFocus) {
+        canvas.drawCircle(pos, 6, Paint()..color = primary.withOpacity(0.2));
+        canvas.drawCircle(pos, 3, Paint()..color = primary);
       } else {
-        canvas.drawCircle(nodes[i], 2, Paint()..color = Colors.white24);
+        canvas.drawCircle(pos, 2, Paint()..color = Colors.white24);
       }
     }
   }
 
   @override
-  bool shouldRepaint(CustomPainter oldDelegate) => false;
+  bool shouldRepaint(CustomPainter oldDelegate) => true;
 }
