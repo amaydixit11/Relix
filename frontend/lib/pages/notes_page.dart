@@ -1,135 +1,84 @@
 import 'package:flutter/material.dart';
+import '../models.dart';
 import '../services/relix_controller.dart';
 import '../widgets/note_card.dart';
-import 'note_detail_page.dart';
 import 'note_editor_page.dart';
 
-class NotesPage extends StatelessWidget {
-  const NotesPage({super.key, required this.controller});
+class NotesPage extends StatefulWidget {
+  const NotesPage({super.key, required this.controller, this.onNoteSelected});
 
   final RelixController controller;
+  final Function(String)? onNoteSelected;
+
+  @override
+  State<NotesPage> createState() => _NotesPageState();
+}
+
+class _NotesPageState extends State<NotesPage> {
+  String _searchQuery = '';
 
   @override
   Widget build(BuildContext context) {
-    final snapshot = controller.snapshot;
-    final notes = snapshot.notes.where((e) => e.type == 'note').toList();
+    final snapshot = widget.controller.snapshot;
+    final notes = snapshot.notes.where((e) => e.type == 'note').where((e) {
+      if (_searchQuery.isEmpty) return true;
+      final content = e.content as NoteContent;
+      final q = _searchQuery.toLowerCase();
+      return content.title.toLowerCase().contains(q) ||
+          content.body.toLowerCase().contains(q) ||
+          e.tags.any((t) => t.toLowerCase().contains(q));
+    }).toList();
 
     return Scaffold(
       backgroundColor: Colors.transparent,
-      floatingActionButton: Container(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(20),
-          boxShadow: [
-            BoxShadow(
-              color: const Color(0xFF2DD4BF).withValues(alpha: 0.3),
-              blurRadius: 20,
-              offset: const Offset(0, 8),
-            ),
-          ],
-        ),
-        child: FloatingActionButton.extended(
-          onPressed: () {
-            Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => NoteEditorPage(controller: controller),
-              ),
-            );
-          },
-          icon: const Icon(Icons.add_rounded, size: 24),
-          label: const Text(
-            'New Entry',
-            style: TextStyle(fontWeight: FontWeight.w800, letterSpacing: 0.5),
-          ),
-          backgroundColor: const Color(0xFF2DD4BF),
-          foregroundColor: const Color(0xFF0F172A),
-        ),
-      ),
       body: RefreshIndicator(
-        onRefresh: controller.refresh,
+        onRefresh: widget.controller.refresh,
         displacement: 40,
-        color: const Color(0xFF2DD4BF),
-        backgroundColor: const Color(0xFF0F172A),
+        color: const Color(0xFF7B88FF),
+        backgroundColor: const Color(0xFF0F0F0F),
         child: CustomScrollView(
           physics: const BouncingScrollPhysics(),
           slivers: [
             SliverPadding(
-              padding: const EdgeInsets.fromLTRB(24, 64, 24, 0),
+              padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 40),
               sliver: SliverToBoxAdapter(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Text(
-                          'Memoranda',
-                          style: Theme.of(context).textTheme.headlineLarge,
-                        ),
-                        const SizedBox(width: 12),
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 8),
-                          child: Container(
-                            width: 6,
-                            height: 6,
-                            decoration: const BoxDecoration(
-                              color: Color(0xFF2DD4BF),
-                              shape: BoxShape.circle,
-                            ),
-                          ),
-                        ),
-                      ],
+                    const Text(
+                      'NEURAL REPOSITORY',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 2,
+                        color: Color(0xFF7B88FF),
+                      ),
                     ),
                     const SizedBox(height: 8),
                     Text(
+                      'Memoranda Index',
+                      style: Theme.of(context).textTheme.headlineMedium,
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
                       notes.isEmpty
-                          ? 'Initializing Neural Vault...'
-                          : '${notes.length} entries stored in local nebula',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: Colors.white.withValues(alpha: 0.3),
-                        fontWeight: FontWeight.w500,
+                          ? 'INITIALIZING_NEURAL_VAULT...'
+                          : '${notes.length} SECURE_ENTRIES_INDEXED',
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        color: Colors.white10,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
                     const SizedBox(height: 32),
                     _buildSearchBar(context),
-                    if (snapshot.errorMessage != null) ...[
-                      const SizedBox(height: 24),
-                      Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: Colors.redAccent.withValues(alpha: 0.05),
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(
-                            color: Colors.redAccent.withValues(alpha: 0.1),
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            const Icon(
-                              Icons.error_outline_rounded,
-                              color: Colors.redAccent,
-                              size: 20,
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Text(
-                                snapshot.errorMessage!,
-                                style: const TextStyle(
-                                  color: Colors.redAccent,
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
                   ],
                 ),
               ),
             ),
             SliverPadding(
-              padding: const EdgeInsets.all(24),
+              padding: const EdgeInsets.symmetric(horizontal: 48),
               sliver: notes.isEmpty
                   ? SliverFillRemaining(
                       hasScrollBody: false,
@@ -137,7 +86,7 @@ class NotesPage extends StatelessWidget {
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(
+                            const Icon(
                               Icons.auto_awesome_mosaic_outlined,
                               size: 48,
                               color: Colors.white10,
@@ -145,11 +94,13 @@ class NotesPage extends StatelessWidget {
                             const SizedBox(height: 16),
                             Text(
                               snapshot.daemonReachable
-                                  ? 'Nothing here yet'
-                                  : 'Syncing with daemon...',
+                                  ? 'NO_DATA_INDEXED'
+                                  : 'UPLINK_IN_PROGRESS...',
                               style: const TextStyle(
+                                fontFamily: 'monospace',
                                 color: Colors.white10,
                                 fontWeight: FontWeight.w600,
+                                fontSize: 11,
                               ),
                             ),
                           ],
@@ -162,14 +113,20 @@ class NotesPage extends StatelessWidget {
                         return NoteCard(
                           note: note,
                           timeLabel: _formatTime(note.updatedAt),
-                          onTap: () => Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => NoteDetailPage(
-                                controller: controller,
-                                noteId: note.id,
-                              ),
-                            ),
-                          ),
+                          onTap: () {
+                            if (widget.onNoteSelected != null) {
+                              widget.onNoteSelected!(note.id);
+                            } else {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => NoteEditorPage(
+                                    controller: widget.controller,
+                                    existing: note,
+                                  ),
+                                ),
+                              );
+                            }
+                          },
                         );
                       }, childCount: notes.length),
                     ),
@@ -183,41 +140,31 @@ class NotesPage extends StatelessWidget {
 
   Widget _buildSearchBar(BuildContext context) {
     return Container(
+      height: 48,
       decoration: BoxDecoration(
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.2),
-            blurRadius: 30,
-            offset: const Offset(0, 10),
-          ),
-        ],
+        color: const Color(0xFF131313),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFF1F1F1F)),
       ),
       child: TextField(
+        onChanged: (v) => setState(() => _searchQuery = v),
+        style: const TextStyle(fontSize: 13),
         decoration: InputDecoration(
-          hintText: 'Recall anything...',
+          hintText: 'RECALL_SEQUENCES...',
+          hintStyle: const TextStyle(
+            color: Colors.white10,
+            fontSize: 11,
+            letterSpacing: 1,
+          ),
           prefixIcon: Icon(
             Icons.search_rounded,
-            color: Colors.white.withValues(alpha: 0.2),
+            size: 18,
+            color: Colors.white.withValues(alpha: 0.1),
           ),
-          suffixIcon: Container(
-            margin: const EdgeInsets.all(8),
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            decoration: BoxDecoration(
-              color: const Color(0xFF2DD4BF).withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: const Center(
-              widthFactor: 1,
-              child: Text(
-                '⌘K',
-                style: TextStyle(
-                  color: Color(0xFF2DD4BF),
-                  fontSize: 10,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-            ),
-          ),
+          border: InputBorder.none,
+          enabledBorder: InputBorder.none,
+          focusedBorder: InputBorder.none,
+          contentPadding: const EdgeInsets.symmetric(vertical: 12),
         ),
       ),
     );
