@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, useMemo } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useGraph } from '@relix/core';
 import { PageLayout } from '@/components';
@@ -27,12 +27,14 @@ export default function GraphPage() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const nodesRef = useRef<PhysicsNode[]>([]);
   const edgesRef = useRef<Edge[]>([]);
+  const panStartRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
+  const panMovedRef = useRef(false);
   
   // UI State
   const [search, setSearch] = useState('');
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
-  const [hoveredNode, setHoveredNode] = useState<PhysicsNode | null>(null);
+  const [isPanning, setIsPanning] = useState(false);
 
   // Initialize
   useEffect(() => {
@@ -166,21 +168,80 @@ export default function GraphPage() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  const clampZoom = (value: number) => Math.max(0.35, Math.min(2.5, value));
+
+  const screenToWorld = (clientX: number, clientY: number) => {
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return null;
+
+    return {
+      x: (clientX - rect.left - pan.x) / zoom,
+      y: (clientY - rect.top - pan.y) / zoom,
+    };
+  };
+
+  const handlePointerDown = (event: React.MouseEvent<HTMLCanvasElement>) => {
+    if (event.button !== 0) return;
+    panMovedRef.current = false;
+    panStartRef.current = {
+      x: event.clientX,
+      y: event.clientY,
+      panX: pan.x,
+      panY: pan.y,
+    };
+    setIsPanning(true);
+  };
+
+  const handlePointerMove = (event: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!panStartRef.current) return;
+    const deltaX = event.clientX - panStartRef.current.x;
+    const deltaY = event.clientY - panStartRef.current.y;
+    if (Math.abs(deltaX) > 3 || Math.abs(deltaY) > 3) {
+      panMovedRef.current = true;
+    }
+    setPan({
+      x: panStartRef.current.panX + deltaX,
+      y: panStartRef.current.panY + deltaY,
+    });
+  };
+
+  const endPan = () => {
+    panStartRef.current = null;
+    setIsPanning(false);
+  };
+
+  const handleWheel = (event: React.WheelEvent<HTMLCanvasElement>) => {
+    event.preventDefault();
+    const worldPoint = screenToWorld(event.clientX, event.clientY);
+    if (!worldPoint) return;
+
+    const nextZoom = clampZoom(zoom * (event.deltaY < 0 ? 1.1 : 0.9));
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return;
+
+    setPan({
+      x: event.clientX - rect.left - worldPoint.x * nextZoom,
+      y: event.clientY - rect.top - worldPoint.y * nextZoom,
+    });
+    setZoom(nextZoom);
+  };
+
   return (
     <PageLayout noPadding>
       <div style={{ position: 'relative', width: '100%', height: '100%', background: '#0a0a0a', overflow: 'hidden' }}>
         <canvas 
           ref={canvasRef} 
-          style={{ cursor: 'crosshair', display: 'block' }}
-          onMouseDown={(e) => {
-             // Basic pan logic (omitted for brevity during rewrite, can add back)
-          }}
+          style={{ cursor: isPanning ? 'grabbing' : 'grab', display: 'block' }}
+          onMouseDown={handlePointerDown}
+          onMouseMove={handlePointerMove}
+          onMouseUp={endPan}
+          onMouseLeave={endPan}
+          onWheel={handleWheel}
           onClick={(e) => {
-            // Find clicked node
-            const rect = canvasRef.current?.getBoundingClientRect();
-            if (!rect) return;
-            const x = (e.clientX - rect.left - pan.x) / zoom;
-            const y = (e.clientY - rect.top - pan.y) / zoom;
+            if (panMovedRef.current) return;
+            const worldPoint = screenToWorld(e.clientX, e.clientY);
+            if (!worldPoint) return;
+            const { x, y } = worldPoint;
             const clicked = nodesRef.current.find(n => {
               const dx = n.x - x;
               const dy = n.y - y;
@@ -192,20 +253,58 @@ export default function GraphPage() {
         
         {/* Overlay Controls */}
         <div style={{ position: 'absolute', top: 20, left: 20, zIndex: 10 }}>
-          <input 
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="Search graph..."
-            style={{ 
-              background: 'rgba(255,255,255,0.05)', 
-              border: '1px solid rgba(255,255,255,0.1)',
-              backdropFilter: 'blur(10px)',
-              color: '#fff',
-              padding: '8px 16px',
-              borderRadius: '8px',
-              width: '250px'
-            }}
-          />
+          <div style={{ display: 'grid', gap: 12 }}>
+            <input 
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search graph..."
+              style={{ 
+                background: 'rgba(255,255,255,0.05)', 
+                border: '1px solid rgba(255,255,255,0.1)',
+                backdropFilter: 'blur(10px)',
+                color: '#fff',
+                padding: '8px 16px',
+                borderRadius: '8px',
+                width: '250px'
+              }}
+            />
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                background: 'rgba(9, 9, 11, 0.72)',
+                border: '1px solid rgba(255,255,255,0.1)',
+                borderRadius: 12,
+                padding: 8,
+                width: 'fit-content',
+              }}
+            >
+              <button
+                onClick={() => setZoom((value) => clampZoom(value * 0.9))}
+                style={{ minWidth: 36 }}
+              >
+                -
+              </button>
+              <span style={{ minWidth: 64, textAlign: 'center', color: '#fff', fontSize: 12 }}>
+                {(zoom * 100).toFixed(0)}%
+              </span>
+              <button
+                onClick={() => setZoom((value) => clampZoom(value * 1.1))}
+                style={{ minWidth: 36 }}
+              >
+                +
+              </button>
+              <button
+                onClick={() => {
+                  setZoom(1);
+                  setPan({ x: 0, y: 0 });
+                }}
+              >
+                Reset
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </PageLayout>
