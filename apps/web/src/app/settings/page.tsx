@@ -32,22 +32,22 @@ export default function SettingsPage() {
 
   return (
     <PageLayout>
-      <h1 className="text-2xl font-bold mb-8">Settings</h1>
+      <h1 style={{ fontSize: '2rem', fontWeight: 700, marginBottom: '2rem' }}>Settings</h1>
 
-      <div className="grid gap-8 max-w-3xl">
+      <div style={{ display: 'grid', gap: '2rem', maxWidth: '48rem' }}>
         <Section title="This Device">
           {connection.identity ? (
-            <div className="p-4 bg-black/20 rounded-lg border border-white/5 font-mono text-xs">
-              <div className="mb-2 flex justify-between">
-                <span className="text-zinc-500">PEER ID</span>
-                <span className="text-indigo-400">{connection.identity.peer_id}</span>
+            <div style={styles.identityCard}>
+              <div style={styles.rowBetween}>
+                <span style={styles.mutedLabel}>PEER ID</span>
+                <span style={styles.accentText}>{connection.identity.peer_id}</span>
               </div>
-              <div className="flex flex-col gap-1">
-                <span className="text-zinc-500 mb-1">LOCAL ADDRESSES</span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                <span style={{ ...styles.mutedLabel, marginBottom: '0.25rem' }}>LOCAL ADDRESSES</span>
                 {connection.identity.addrs.slice(0, 3).map((addr, index) => (
                   <div
                     key={index}
-                    className="text-zinc-400 opacity-60 overflow-hidden whitespace-nowrap text-ellipsis"
+                    style={styles.addressLine}
                   >
                     {addr}
                   </div>
@@ -55,7 +55,7 @@ export default function SettingsPage() {
               </div>
             </div>
           ) : (
-            <p className="text-zinc-500 text-sm">Not connected to daemon</p>
+            <p style={styles.subtleCopy}>Not connected to daemon</p>
           )}
         </Section>
 
@@ -86,19 +86,19 @@ export default function SettingsPage() {
         </Section>
 
         <Section title="Pair New Device">
-          <div className="mb-4 inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-amber-500/20 bg-amber-500/10 text-amber-300 text-xs font-semibold uppercase tracking-wider">
-            <span className="w-1.5 h-1.5 rounded-full bg-amber-300" />
+          <div style={styles.warningBadge}>
+            <span style={styles.warningDot} />
             Local Network Only Until Relay Is Verified
           </div>
-          <p className="text-sm text-zinc-400 mb-6">
+          <p style={{ ...styles.bodyCopy, marginBottom: '1.5rem' }}>
             Pairing UI is ready. Internet reachability is still documented as unverified, so users should expect reliable pairing only on the same LAN until relay support is confirmed.
           </p>
 
-          <div className="grid gap-8">
+          <div style={{ display: 'grid', gap: '2rem' }}>
             <InviteAction />
 
-            <div className="pt-6 border-t border-white/5">
-              <h3 className="text-sm font-semibold mb-3">Join Remote Mesh</h3>
+            <div style={{ paddingTop: '1.5rem', borderTop: '1px solid rgba(255, 255, 255, 0.05)' }}>
+              <h3 style={{ fontSize: '0.95rem', fontWeight: 600, marginBottom: '0.75rem' }}>Join Remote Mesh</h3>
               <PairAction />
             </div>
           </div>
@@ -106,28 +106,36 @@ export default function SettingsPage() {
 
         <Section title="Paired Devices">
           {connection.peers.length === 0 ? (
-            <p className="text-zinc-500 text-sm">No paired peers recorded yet.</p>
+            <p style={styles.subtleCopy}>No paired peers recorded yet.</p>
           ) : (
-            <div className="grid gap-4">
+            <div style={{ display: 'grid', gap: '1rem' }}>
               {connection.peers.map((peer) => (
-                <div key={peer.id} className="rounded-xl border border-white/5 bg-black/20 p-4">
-                  <div className="flex items-start justify-between gap-4 mb-3">
+                <div key={peer.id} style={styles.peerCard}>
+                  <div style={{ ...styles.rowBetween, alignItems: 'flex-start', gap: '1rem', marginBottom: '0.75rem' }}>
                     <div>
-                      <div className="text-sm font-semibold text-zinc-100">{peer.display_name}</div>
-                      <div className="text-xs text-zinc-500 font-mono">{peer.id}</div>
+                      <div style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--text-primary)' }}>{peer.display_name}</div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{peer.id}</div>
                     </div>
-                    <span className={`text-[10px] uppercase tracking-widest font-bold ${peer.is_connected ? 'text-emerald-400' : 'text-zinc-500'}`}>
+                    <span
+                      style={{
+                        fontSize: '0.625rem',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.18em',
+                        fontWeight: 700,
+                        color: peer.is_connected ? 'var(--success)' : 'var(--text-muted)',
+                      }}
+                    >
                       {peer.is_connected ? peer.connection_type || 'connected' : 'saved'}
                     </span>
                   </div>
 
-                  <div className="grid gap-2 text-sm text-zinc-400 mb-4">
+                  <div style={{ display: 'grid', gap: '0.5rem', fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
                     <div>First paired: {formatTimestamp(peer.first_paired_at)}</div>
                     <div>Last seen: {formatTimestamp(peer.last_seen_at)}</div>
                     <div>Last sync: {formatTimestamp(peer.last_sync_at)}</div>
                   </div>
 
-                  <div className="flex gap-2">
+                  <div style={{ display: 'flex', gap: '0.5rem' }}>
                     <input
                       type="text"
                       value={peerNames[peer.id] ?? peer.nickname ?? ''}
@@ -138,11 +146,11 @@ export default function SettingsPage() {
                         }))
                       }
                       placeholder="Peer nickname"
-                      className="flex-1 bg-zinc-900 border border-white/10 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-indigo-500 outline-none transition-shadow"
+                      style={{ ...styles.input, flex: 1 }}
                     />
                     <button
                       onClick={() => handleRename(peer.id)}
-                      className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg text-sm font-semibold"
+                      style={styles.secondaryButton}
                     >
                       Save
                     </button>
@@ -154,12 +162,12 @@ export default function SettingsPage() {
         </Section>
 
         <Section title="Data Export">
-          <p className="text-sm text-zinc-400 mb-4">
+          <p style={{ ...styles.bodyCopy, marginBottom: '1rem' }}>
             Relix is your data. Export your entire library as standard Markdown with YAML frontmatter anytime.
           </p>
           <button
             onClick={handleExportMarkdown}
-            className="w-full py-3 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg transition-colors font-semibold"
+            style={{ ...styles.secondaryButton, width: '100%', justifyContent: 'center', padding: '0.85rem 1rem' }}
           >
             Export as ZIP
           </button>
@@ -186,27 +194,38 @@ function InviteAction() {
   };
 
   return (
-    <div className="flex flex-col gap-4">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       {!invite ? (
         <button
           onClick={handleInvite}
           disabled={loading}
-          className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg transition-colors font-semibold shadow-lg shadow-indigo-500/20"
+          style={{
+            ...styles.primaryButton,
+            width: '100%',
+            justifyContent: 'center',
+            padding: '0.85rem 1rem',
+            opacity: loading ? 0.6 : 1,
+          }}
         >
           {loading ? 'Generating...' : 'Invite to Fleet'}
         </button>
       ) : (
-        <div className="p-6 bg-zinc-900 ring-1 ring-white/10 rounded-xl overflow-hidden shadow-2xl">
-          <div className="flex flex-col md:flex-row gap-6 items-center">
-            <div className="bg-white p-4 rounded-lg">
+        <div style={styles.inviteCard}>
+          <div style={styles.inviteLayout}>
+            <div style={styles.qrShell}>
               <QRCodeSVG value={invite} size={160} level="M" includeMargin={false} />
             </div>
-            <div className="flex-1 text-center md:text-left">
-              <h4 className="text-white font-bold mb-1">Device Invite Code</h4>
-              <p className="text-xs text-zinc-500 mb-4 font-mono break-all">{invite.slice(0, 32)}...</p>
+            <div style={{ flex: 1 }}>
+              <h4 style={{ color: 'var(--text-primary)', fontWeight: 700, marginBottom: '0.25rem' }}>Device Invite Code</h4>
+              <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '1rem', fontFamily: 'var(--font-mono)', wordBreak: 'break-all' }}>{invite.slice(0, 32)}...</p>
               <button
                 onClick={() => navigator.clipboard.writeText(invite)}
-                className="px-4 py-2 bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 rounded-lg text-sm hover:bg-indigo-600/30 transition-colors"
+                style={{
+                  ...styles.secondaryButton,
+                  color: '#a5b4fc',
+                  borderColor: 'rgba(129, 140, 248, 0.3)',
+                  background: 'rgba(79, 70, 229, 0.15)',
+                }}
               >
                 Copy Full Code
               </button>
@@ -236,18 +255,21 @@ function PairAction() {
   };
 
   return (
-    <div className="flex gap-2">
+    <div style={{ display: 'flex', gap: '0.5rem' }}>
       <input
         type="text"
         value={code}
         onChange={(event) => setCode(event.target.value)}
         placeholder="v1.p2p.invite.xxx..."
-        className="flex-1 bg-zinc-900 border border-white/10 rounded-lg px-4 py-2 text-sm focus:ring-1 focus:ring-indigo-500 outline-none transition-shadow"
+        style={{ ...styles.input, flex: 1 }}
       />
       <button
         onClick={handlePair}
         disabled={loading || !code}
-        className="px-6 py-2 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-white rounded-lg transition-colors text-sm font-semibold border border-white/5"
+        style={{
+          ...styles.secondaryButton,
+          opacity: loading || !code ? 0.6 : 1,
+        }}
       >
         {loading ? 'Pairing...' : 'Join'}
       </button>
@@ -257,8 +279,8 @@ function PairAction() {
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="bg-zinc-900/50 rounded-xl border border-white/5 p-6 backdrop-blur-sm">
-      <h2 className="text-sm font-bold text-zinc-500 uppercase tracking-wider mb-6 pb-2 border-b border-white/5">
+    <section style={styles.section}>
+      <h2 style={styles.sectionTitle}>
         {title}
       </h2>
       <div>{children}</div>
@@ -269,17 +291,17 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 function StatusRow({ label, value, status }: { label: string; value: string; status?: 'success' | 'warning' | 'error' }) {
   const statusColor =
     status === 'success'
-      ? 'text-emerald-400'
+      ? 'var(--success)'
       : status === 'warning'
-        ? 'text-amber-300'
+        ? 'var(--warning)'
         : status === 'error'
-          ? 'text-rose-400'
-          : 'text-zinc-200';
+          ? 'var(--error)'
+          : 'var(--text-primary)';
 
   return (
-    <div className="flex justify-between py-3 border-b border-white/[0.03] text-sm">
-      <span className="text-zinc-500">{label}</span>
-      <span className={`font-mono ${statusColor}`}>{value}</span>
+    <div style={styles.statusRow}>
+      <span style={{ color: 'var(--text-muted)' }}>{label}</span>
+      <span style={{ fontFamily: 'var(--font-mono)', color: statusColor }}>{value}</span>
     </div>
   );
 }
@@ -288,3 +310,138 @@ function formatTimestamp(value?: number) {
   if (!value) return 'Never';
   return new Date(value * 1000).toLocaleString();
 }
+
+const styles = {
+  section: {
+    background: 'rgba(17, 24, 39, 0.45)',
+    borderRadius: '1rem',
+    border: '1px solid rgba(255, 255, 255, 0.06)',
+    padding: '1.5rem',
+    backdropFilter: 'blur(10px)',
+  },
+  sectionTitle: {
+    fontSize: '0.8rem',
+    fontWeight: 700,
+    color: 'var(--text-muted)',
+    textTransform: 'uppercase' as const,
+    letterSpacing: '0.14em',
+    marginBottom: '1.5rem',
+    paddingBottom: '0.5rem',
+    borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
+  },
+  identityCard: {
+    padding: '1rem',
+    background: 'rgba(0, 0, 0, 0.2)',
+    borderRadius: '0.75rem',
+    border: '1px solid rgba(255, 255, 255, 0.05)',
+    fontFamily: 'var(--font-mono)',
+    fontSize: '0.75rem',
+  },
+  rowBetween: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    marginBottom: '0.5rem',
+  },
+  mutedLabel: {
+    color: 'var(--text-muted)',
+  },
+  accentText: {
+    color: '#818cf8',
+  },
+  addressLine: {
+    color: 'var(--text-secondary)',
+    opacity: 0.7,
+    overflow: 'hidden',
+    whiteSpace: 'nowrap' as const,
+    textOverflow: 'ellipsis',
+  },
+  subtleCopy: {
+    color: 'var(--text-muted)',
+    fontSize: '0.9rem',
+  },
+  bodyCopy: {
+    color: 'var(--text-secondary)',
+    fontSize: '0.95rem',
+    lineHeight: 1.6,
+  },
+  warningBadge: {
+    marginBottom: '1rem',
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '0.5rem',
+    padding: '0.45rem 0.8rem',
+    borderRadius: '999px',
+    border: '1px solid rgba(251, 191, 36, 0.2)',
+    background: 'rgba(251, 191, 36, 0.1)',
+    color: 'var(--warning)',
+    fontSize: '0.75rem',
+    fontWeight: 700,
+    textTransform: 'uppercase' as const,
+    letterSpacing: '0.08em',
+  },
+  warningDot: {
+    width: '0.375rem',
+    height: '0.375rem',
+    borderRadius: '999px',
+    background: 'var(--warning)',
+  },
+  peerCard: {
+    borderRadius: '1rem',
+    border: '1px solid rgba(255, 255, 255, 0.05)',
+    background: 'rgba(0, 0, 0, 0.2)',
+    padding: '1rem',
+  },
+  input: {
+    background: 'rgba(0, 0, 0, 0.3)',
+    border: '1px solid rgba(255, 255, 255, 0.1)',
+    borderRadius: '0.75rem',
+    padding: '0.7rem 0.9rem',
+    fontSize: '0.9rem',
+    color: 'var(--text-primary)',
+  },
+  secondaryButton: {
+    padding: '0.7rem 1rem',
+    background: 'rgba(255, 255, 255, 0.06)',
+    color: 'var(--text-primary)',
+    borderRadius: '0.75rem',
+    border: '1px solid rgba(255, 255, 255, 0.08)',
+    fontSize: '0.875rem',
+    fontWeight: 600,
+  },
+  primaryButton: {
+    padding: '0.7rem 1rem',
+    background: 'linear-gradient(135deg, var(--accent), #6d28d9)',
+    color: '#ffffff',
+    borderRadius: '0.75rem',
+    border: '1px solid rgba(255, 255, 255, 0.1)',
+    fontSize: '0.95rem',
+    fontWeight: 700,
+    boxShadow: '0 0 24px rgba(139, 92, 246, 0.2)',
+  },
+  inviteCard: {
+    padding: '1.5rem',
+    background: 'rgba(17, 24, 39, 0.65)',
+    border: '1px solid rgba(255, 255, 255, 0.1)',
+    borderRadius: '1rem',
+    overflow: 'hidden',
+    boxShadow: '0 24px 48px rgba(0, 0, 0, 0.2)',
+  },
+  inviteLayout: {
+    display: 'flex',
+    flexWrap: 'wrap' as const,
+    gap: '1.5rem',
+    alignItems: 'center',
+  },
+  qrShell: {
+    background: '#ffffff',
+    padding: '1rem',
+    borderRadius: '0.75rem',
+  },
+  statusRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    padding: '0.75rem 0',
+    borderBottom: '1px solid rgba(255, 255, 255, 0.03)',
+    fontSize: '0.9rem',
+  },
+};
