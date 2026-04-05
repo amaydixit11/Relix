@@ -221,12 +221,14 @@ class RelixController extends ChangeNotifier {
     required String id,
     required String title,
     required String body,
+    required List<String> tags,
   }) async {
     final notes = _snapshot.notes
         .map(
           (note) => note.id == id
               ? note.copyWith(
                   content: NoteContent(title: title, body: body),
+                  tags: tags,
                   updatedAt: _unixNow(),
                   pendingSync: true,
                 )
@@ -235,7 +237,13 @@ class RelixController extends ChangeNotifier {
         .toList();
     await _store.writeNotes(notes);
     await _enqueueMutation(
-      MutationPayload(type: 'update', noteId: id, title: title, body: body),
+      MutationPayload(
+        type: 'update',
+        noteId: id,
+        title: title,
+        body: body,
+        tags: tags,
+      ),
     );
     _snapshot = _snapshot.copyWith(notes: notes);
     notifyListeners();
@@ -297,6 +305,7 @@ class RelixController extends ChangeNotifier {
               mutation.noteId,
               title: mutation.title,
               body: mutation.body,
+              tags: mutation.tags,
             );
             notes = notes
                 .map((note) => note.id == mutation.noteId ? updated : note)
