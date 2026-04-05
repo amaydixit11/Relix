@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ConnectionProvider, configureRuntimeStorage, connectionService } from '@relix/core';
 import { OfflineSyncProvider } from '../src/offline';
+import { resolveAcordeUrl } from '../src/acordeHost';
 
 export default function RootLayout() {
   const [queryClient] = useState(() => new QueryClient());
@@ -18,10 +19,8 @@ export default function RootLayout() {
       removeItem: AsyncStorage.removeItem.bind(AsyncStorage),
     });
 
-    void AsyncStorage.getItem('@relix/server_url').then((url) => {
-      if (url) {
-        connectionService.setBaseUrl(url);
-      }
+    void resolveAcordeUrl(() => AsyncStorage.getItem('@relix/server_url')).then((url) => {
+      connectionService.setBaseUrl(url);
     });
   }, []);
 

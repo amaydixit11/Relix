@@ -17,6 +17,7 @@ import {
 } from '@relix/core';
 import { BarCodeScanner } from 'expo-barcode-scanner';
 import { clearStuckMutations, getStuckMutationCount } from '../src/offline';
+import { detectAcordeUrl, resolveAcordeUrl } from '../src/acordeHost';
 
 export default function SettingsScreen() {
   const connection = useConnectionState();
@@ -29,13 +30,13 @@ export default function SettingsScreen() {
   const [editingPeerId, setEditingPeerId] = useState<string | null>(null);
   const [nicknameDraft, setNicknameDraft] = useState('');
   const [stuckMutations, setStuckMutations] = useState(0);
+  const [bridgeAutoDetected, setBridgeAutoDetected] = useState(false);
 
   useEffect(() => {
-    void AsyncStorage.getItem('@relix/server_url').then((url) => {
-      if (url) {
-        setBridgeUrl(url);
-        connectionService.setBaseUrl(url);
-      }
+    void resolveAcordeUrl(() => AsyncStorage.getItem('@relix/server_url')).then((url) => {
+      setBridgeUrl(url);
+      setBridgeAutoDetected(url === detectAcordeUrl());
+      connectionService.setBaseUrl(url);
     });
 
     void (async () => {
@@ -52,6 +53,7 @@ export default function SettingsScreen() {
 
   const saveBridge = async (url: string) => {
     setBridgeUrl(url);
+    setBridgeAutoDetected(false);
     await AsyncStorage.setItem('@relix/server_url', url);
     connectionService.setBaseUrl(url);
   };
@@ -161,7 +163,9 @@ export default function SettingsScreen() {
                 </TouchableOpacity>
               </View>
               <Text style={styles.hint}>
-                Use manual bridge configuration only if QR pairing is unavailable.
+                {bridgeAutoDetected
+                  ? `Auto-detected from Expo host: ${bridgeUrl}`
+                  : 'Use manual bridge configuration only if QR pairing is unavailable.'}
               </Text>
             </View>
           ) : null}
