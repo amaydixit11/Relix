@@ -11,12 +11,14 @@ class AcordeClient {
   String _baseUrl;
 
   final Map<String, bool> _capabilities = {};
+  int _capabilityVersion = 0;
 
   String get baseUrl => _baseUrl;
 
   void setBaseUrl(String value) {
     _baseUrl = value;
     _capabilities.clear();
+    _capabilityVersion++;
   }
 
   Future<bool> healthCheck() async {
@@ -37,14 +39,31 @@ class AcordeClient {
   Future<bool> hasCapability(String route) async {
     if (_capabilities.containsKey(route)) return _capabilities[route]!;
 
+    final version = _capabilityVersion;
+    final probe = switch (route) {
+      'identity' => ('GET', '$_baseUrl/identity'),
+      'peers' => ('GET', '$_baseUrl/peers'),
+      'search' => ('GET', '$_baseUrl/search?q=probe'),
+      'events' => ('GET', '$_baseUrl/events'),
+      'invite' || 'pair' || 'blobs' => null,
+      _ => ('GET', '$_baseUrl/$route'),
+    };
+
+    if (probe == null) {
+      return true;
+    }
+
     try {
-      // Standard probe: OPTIONS if supported, or just a safe GET/HEAD
-      final response = await http.get(Uri.parse('$_baseUrl/$route'));
-      // 404 means not supported, other codes (even 401/400) suggest route exists
+      final response = await http.get(Uri.parse(probe.$2));
       final supported = response.statusCode != 404;
-      _capabilities[route] = supported;
+      if (version == _capabilityVersion) {
+        _capabilities[route] = supported;
+      }
       return supported;
     } catch (_) {
+      if (version == _capabilityVersion) {
+        _capabilities.remove(route);
+      }
       return false;
     }
   }

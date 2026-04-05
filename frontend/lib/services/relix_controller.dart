@@ -41,6 +41,7 @@ class RelixController extends ChangeNotifier {
   Timer? _pollTimer;
   bool _refreshing = false;
   bool _draining = false;
+  Future<void> _queueWrite = Future.value();
 
   Future<void> initialize() async {
     final baseUrl = await _store.readBaseUrl() ?? 'http://localhost:7331';
@@ -105,29 +106,31 @@ class RelixController extends ChangeNotifier {
             .catchError((_) => null),
         _client.getPeers().catchError((_) => <RemotePeer>[]),
         _client.getStatus().catchError((_) => <String, dynamic>{}),
-        _client.listEntries().catchError((_) => <NoteEntry>[]),
+        _client.listEntries().then<Object?>((value) => value).catchError((_) => null),
       ]);
 
       final identity = results[0] as LocalIdentity?;
       final incomingPeers = results[1] as List<RemotePeer>;
       final status = results[2] as Map<String, dynamic>;
-      final remoteNotes = results[3] as List<NoteEntry>;
+      final remoteNotes = results[3] as List<NoteEntry>?;
 
       final mergedPeers = await _mergePeers(
         incomingPeers,
         status['last_sync'] as int?,
       );
       final queue = await _store.readQueue();
-      final mergedNotes = _mergeRemoteNotes(remoteNotes, queue);
+      final cachedNotes = await _store.readNotes();
+      final mergedNotes = _mergeRemoteNotes(remoteNotes ?? cachedNotes, queue);
       await _store.writeNotes(mergedNotes);
       await _drainQueue();
       final stuck = await _store.readStuckMutations();
       final pending = await _store.readQueue();
+      final settledNotes = await _store.readNotes();
 
       _snapshot = _snapshot.copyWith(
         identity: identity,
         peers: mergedPeers,
-        notes: mergedNotes,
+        notes: settledNotes,
         daemonReachable: true,
         pendingChanges: pending.length,
         stuckMutations: stuck.length,
@@ -291,6 +294,14 @@ class RelixController extends ChangeNotifier {
   }
 
   Future<void> applyRemoteNote(NoteEntry remote) async {
+    await _withQueueWriteLock(() async {
+      final queue = await _store.readQueue();
+      final filteredQueue = queue
+          .where((mutation) => mutation.noteId != remote.id)
+          .toList();
+      await _store.writeQueue(filteredQueue);
+    });
+
     final notes = _snapshot.notes
         .map(
           (note) => note.id == remote.id
@@ -304,88 +315,107 @@ class RelixController extends ChangeNotifier {
       ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
 
     await _store.writeNotes(notes);
-    _snapshot = _snapshot.copyWith(notes: notes, errorMessage: null);
+    _snapshot = _snapshot.copyWith(
+      notes: notes,
+      pendingChanges: (await _store.readQueue()).length,
+      errorMessage: null,
+    );
     notifyListeners();
   }
 
   Future<void> _enqueueMutation(MutationPayload mutation) async {
-    final queue = await _store.readQueue();
-    queue.add(mutation);
-    await _store.writeQueue(queue);
-    _snapshot = _snapshot.copyWith(pendingChanges: queue.length);
+    await _withQueueWriteLock(() async {
+      final queue = await _store.readQueue();
+      queue.add(mutation);
+      await _store.writeQueue(queue);
+      _snapshot = _snapshot.copyWith(pendingChanges: queue.length);
+    });
   }
 
   Future<void> _drainQueue() async {
     if (_draining) return;
     _draining = true;
     try {
-      final queue = await _store.readQueue();
-      if (queue.isEmpty) {
-        _snapshot = _snapshot.copyWith(pendingChanges: 0);
-        return;
-      }
+      await _withQueueWriteLock(() async {
+        final queue = await _store.readQueue();
+        if (queue.isEmpty) {
+          _snapshot = _snapshot.copyWith(pendingChanges: 0);
+          return;
+        }
 
-      final remaining = <MutationPayload>[];
-      final stuck = await _store.readStuckMutations();
-      var notes = [..._snapshot.notes];
+        final remaining = <MutationPayload>[];
+        final stuck = await _store.readStuckMutations();
+        var notes = await _store.readNotes();
 
-      for (final mutation in queue) {
-        try {
-          if (mutation.type == 'create') {
-            // Use NoteService to handle wikilinks during actual sync
-            final created = await _note.create(
-              mutation.title ?? 'Untitled',
-              mutation.body ?? '',
-              tags: mutation.tags,
+        for (var index = 0; index < queue.length; index++) {
+          final mutation = queue[index];
+          try {
+            if (mutation.type == 'create') {
+              final created = await _note.create(
+                mutation.title ?? 'Untitled',
+                mutation.body ?? '',
+                tags: mutation.tags,
+              );
+              final normalized = created.copyWith(
+                baselineUpdatedAt: created.updatedAt,
+              );
+              notes = notes
+                  .map((note) => note.id == mutation.noteId ? normalized : note)
+                  .toList();
+              _rewriteQueuedNoteId(
+                queue,
+                oldId: mutation.noteId,
+                newId: created.id,
+                startIndex: index + 1,
+              );
+              _rewriteQueuedNoteId(
+                remaining,
+                oldId: mutation.noteId,
+                newId: created.id,
+              );
+            } else if (mutation.type == 'update') {
+              final updated = await _note.update(
+                mutation.noteId,
+                title: mutation.title,
+                body: mutation.body,
+                tags: mutation.tags,
+              );
+              final normalized = updated.copyWith(
+                baselineUpdatedAt: updated.updatedAt,
+              );
+              notes = notes
+                  .map((note) => note.id == mutation.noteId ? normalized : note)
+                  .toList();
+            } else if (mutation.type == 'delete') {
+              await _client.deleteNote(mutation.noteId);
+              notes = notes.where((note) => note.id != mutation.noteId).toList();
+            }
+          } catch (_) {
+            final retried = mutation.copyWith(
+              retryCount: mutation.retryCount + 1,
             );
-            final normalized = created.copyWith(
-              baselineUpdatedAt: created.updatedAt,
-            );
-            notes = notes
-                .map((note) => note.id == mutation.noteId ? normalized : note)
-                .toList();
-          } else if (mutation.type == 'update') {
-            final updated = await _note.update(
-              mutation.noteId,
-              title: mutation.title,
-              body: mutation.body,
-              tags: mutation.tags,
-            );
-            final normalized = updated.copyWith(
-              baselineUpdatedAt: updated.updatedAt,
-            );
-            notes = notes
-                .map((note) => note.id == mutation.noteId ? normalized : note)
-                .toList();
-          } else if (mutation.type == 'delete') {
-            await _client.deleteNote(mutation.noteId);
-            notes = notes.where((note) => note.id != mutation.noteId).toList();
-          }
-        } catch (_) {
-          final retried = mutation.copyWith(
-            retryCount: mutation.retryCount + 1,
-          );
-          if (retried.retryCount >= 5) {
-            stuck.add(retried);
-          } else {
-            remaining.add(retried);
+            if (retried.retryCount >= 5) {
+              stuck.add(retried);
+            } else {
+              remaining.add(retried);
+            }
           }
         }
-      }
 
-      notes = notes.map((note) {
-        final pending = remaining.any((mutation) => mutation.noteId == note.id);
-        return note.copyWith(pendingSync: pending);
-      }).toList();
+        notes = notes.map((note) {
+          final pending = remaining.any((mutation) => mutation.noteId == note.id);
+          return note.copyWith(pendingSync: pending);
+        }).toList();
 
-      await _store.writeQueue(remaining);
-      await _store.writeStuckMutations(stuck);
-      await _store.writeNotes(notes);
-      _snapshot = _snapshot.copyWith(
-        notes: notes,
-        pendingChanges: remaining.length,
-        stuckMutations: stuck.length,
-      );
+        await _store.writeQueue(remaining);
+        await _store.writeStuckMutations(stuck);
+        await _store.writeNotes(notes);
+        _snapshot = _snapshot.copyWith(
+          notes: notes,
+          pendingChanges: remaining.length,
+          stuckMutations: stuck.length,
+        );
+      });
     } finally {
       _draining = false;
     }
@@ -422,6 +452,7 @@ class RelixController extends ChangeNotifier {
               title: mutation.title ?? (existing.content as NoteContent).title,
               body: mutation.body ?? (existing.content as NoteContent).body,
             ),
+            tags: mutation.tags,
             baselineUpdatedAt: existing.baselineUpdatedAt ?? existing.updatedAt,
             pendingSync: true,
           );
@@ -434,6 +465,26 @@ class RelixController extends ChangeNotifier {
     final notes = remoteById.values.toList()
       ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
     return notes;
+  }
+
+  Future<void> _withQueueWriteLock(Future<void> Function() operation) {
+    final next = _queueWrite.then((_) => operation());
+    _queueWrite = next.catchError((_) {});
+    return next;
+  }
+
+  void _rewriteQueuedNoteId(
+    List<MutationPayload> queue, {
+    required String oldId,
+    required String newId,
+    int startIndex = 0,
+  }) {
+    for (var i = startIndex; i < queue.length; i++) {
+      final item = queue[i];
+      if (item.noteId == oldId) {
+        queue[i] = item.copyWith(noteId: newId);
+      }
+    }
   }
 
   Future<List<RemotePeer>> _mergePeers(

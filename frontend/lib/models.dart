@@ -239,6 +239,8 @@ class LocalIdentity {
 }
 
 class RemotePeer {
+  static const Object _unset = Object();
+
   const RemotePeer({
     required this.id,
     required this.displayName,
@@ -265,7 +267,7 @@ class RemotePeer {
   RemotePeer copyWith({
     String? id,
     String? displayName,
-    String? nickname,
+    Object? nickname = _unset,
     String? connectionType,
     bool? isConnected,
     int? firstPairedAt,
@@ -275,7 +277,7 @@ class RemotePeer {
     return RemotePeer(
       id: id ?? this.id,
       displayName: displayName ?? this.displayName,
-      nickname: nickname ?? this.nickname,
+      nickname: identical(nickname, _unset) ? this.nickname : nickname as String?,
       connectionType: connectionType ?? this.connectionType,
       isConnected: isConnected ?? this.isConnected,
       firstPairedAt: firstPairedAt ?? this.firstPairedAt,

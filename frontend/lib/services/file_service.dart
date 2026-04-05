@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:typed_data';
+import 'dart:math';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
@@ -59,18 +60,35 @@ class FileService {
   Future<XFile> downloadToTempFile(FileContent file) async {
     final bytes = await download(file.cid);
     final directory = await getTemporaryDirectory();
-    final out = File('${directory.path}/${file.name}');
+    final safeName = _safeLocalFileName(file.name, file.cid);
+    final out = File('${directory.path}/$safeName');
     await out.writeAsBytes(bytes);
     return XFile(out.path, name: file.name, mimeType: file.mimeType);
   }
 
   Future<void> shareFile(FileContent file) async {
     final out = await downloadToTempFile(file);
-    await Share.shareXFiles([out], text: 'Relix attachment: ${file.name}');
+    await SharePlus.instance.share(
+      ShareParams(
+        files: [out],
+        text: 'Relix attachment: ${file.name}',
+      ),
+    );
   }
 
   Future<NoteEntry> addAnnotation(String entryId, Annotation annotation) async {
-    final entry = await client.getNote(entryId);
-    return entry; // Placeholder until generic update is ready
+    throw UnimplementedError(
+      'File annotations are not persisted yet because generic file-entry updates are not implemented.',
+    );
+  }
+
+  String _safeLocalFileName(String name, String cid) {
+    final base = name
+        .replaceAll(RegExp(r'[\\/:*?"<>|]'), '_')
+        .replaceAll('..', '_')
+        .trim();
+    final suffix = cid.isEmpty ? '${Random().nextInt(1 << 32)}' : cid;
+    final truncated = base.isEmpty ? 'relix-file' : base;
+    return '${truncated.substring(0, min(truncated.length, 80))}-$suffix';
   }
 }

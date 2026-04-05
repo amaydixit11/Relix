@@ -310,7 +310,13 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
           ),
         ),
       );
-      if (mounted) {
+      final refreshed = widget.controller.snapshot.notes
+          .where((entry) => entry.id == latest.id)
+          .cast<NoteEntry?>()
+          .firstOrNull;
+      final resolved = refreshed?.baselineUpdatedAt == latest.updatedAt ||
+          refreshed?.updatedAt == latest.updatedAt;
+      if (mounted && resolved) {
         setState(() {
           _hasConflict = false;
           _remoteConflict = null;

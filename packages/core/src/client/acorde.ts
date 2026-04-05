@@ -13,6 +13,7 @@ const API_BASE =
 export class AcordeClient {
   private baseUrl: string;
   private capabilities = new Map<string, boolean>();
+  private capabilityEpoch = 0;
 
   constructor(baseUrl: string = API_BASE) {
     this.baseUrl = baseUrl;
@@ -25,6 +26,7 @@ export class AcordeClient {
   setBaseUrl(url: string) {
     this.baseUrl = url;
     this.capabilities.clear();
+    this.capabilityEpoch += 1;
   }
 
   getBaseUrl() {
@@ -208,13 +210,15 @@ export class AcordeClient {
       return this.capabilities.get(route)!;
     }
 
+    const epoch = this.capabilityEpoch;
     try {
       const res = await fetch(`${this.baseUrl}/${route}`, { method: 'GET' });
       const supported = res.status !== 404;
-      this.capabilities.set(route, supported);
+      if (epoch === this.capabilityEpoch) {
+        this.capabilities.set(route, supported);
+      }
       return supported;
     } catch {
-      this.capabilities.set(route, false);
       return false;
     }
   }

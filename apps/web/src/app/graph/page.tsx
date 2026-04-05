@@ -210,21 +210,33 @@ export default function GraphPage() {
     setIsPanning(false);
   };
 
-  const handleWheel = (event: React.WheelEvent<HTMLCanvasElement>) => {
-    event.preventDefault();
-    const worldPoint = screenToWorld(event.clientX, event.clientY);
+  const adjustZoomAtPoint = (clientX: number, clientY: number, deltaY: number) => {
+    const worldPoint = screenToWorld(clientX, clientY);
     if (!worldPoint) return;
 
-    const nextZoom = clampZoom(zoom * (event.deltaY < 0 ? 1.1 : 0.9));
+    const nextZoom = clampZoom(zoom * (deltaY < 0 ? 1.1 : 0.9));
     const rect = canvasRef.current?.getBoundingClientRect();
     if (!rect) return;
 
     setPan({
-      x: event.clientX - rect.left - worldPoint.x * nextZoom,
-      y: event.clientY - rect.top - worldPoint.y * nextZoom,
+      x: clientX - rect.left - worldPoint.x * nextZoom,
+      y: clientY - rect.top - worldPoint.y * nextZoom,
     });
     setZoom(nextZoom);
   };
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const onWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      adjustZoomAtPoint(event.clientX, event.clientY, event.deltaY);
+    };
+
+    canvas.addEventListener('wheel', onWheel, { passive: false });
+    return () => canvas.removeEventListener('wheel', onWheel);
+  }, [zoom, pan]);
 
   return (
     <PageLayout noPadding>
@@ -236,7 +248,6 @@ export default function GraphPage() {
           onMouseMove={handlePointerMove}
           onMouseUp={endPan}
           onMouseLeave={endPan}
-          onWheel={handleWheel}
           onClick={(e) => {
             if (panMovedRef.current) return;
             const worldPoint = screenToWorld(e.clientX, e.clientY);

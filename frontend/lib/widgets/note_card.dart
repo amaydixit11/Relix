@@ -15,7 +15,10 @@ class NoteCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final noteContent = note.content as NoteContent;
+    final noteContent = note.asNote;
+    if (noteContent == null) {
+      return const SizedBox.shrink();
+    }
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),

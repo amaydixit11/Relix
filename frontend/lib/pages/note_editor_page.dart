@@ -35,7 +35,10 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
     _titleController = TextEditingController(text: note?.title ?? '');
     _bodyController = TextEditingController(text: note?.body ?? '');
     _tagsController = TextEditingController(
-      text: widget.existing?.tags.join(', ') ?? '',
+      text: widget.existing?.tags
+              .where((tag) => !_isSystemTag(tag))
+              .join(', ') ??
+          '',
     );
     _baselineUpdatedAt =
         widget.existing?.baselineUpdatedAt ?? widget.existing?.updatedAt;
@@ -304,6 +307,7 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
         .split(',')
         .map((e) => e.trim())
         .where((e) => e.isNotEmpty)
+        .where((e) => !_isSystemTag(e))
         .toList();
 
     if (title.isEmpty) return;
@@ -434,4 +438,7 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
       Navigator.pop(context);
     }
   }
+
+  bool _isSystemTag(String tag) =>
+      tag.startsWith('outlink:') || tag.startsWith('backlink:');
 }

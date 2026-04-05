@@ -1,9 +1,10 @@
-import 'dart:io';
+import 'dart:convert';
 import 'dart:typed_data';
+
 import 'package:archive/archive.dart';
 import 'package:intl/intl.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
+
 import '../models.dart';
 
 class ExportService {
@@ -48,12 +49,13 @@ class ExportService {
           .replaceAll(RegExp(r'[/\\?%*:|"<> \.]'), '-')
           .substring(0, content.title.length > 50 ? 50 : content.title.length);
 
-      final bytes = Uint8List.fromList(noteToMarkdown(note).codeUnits);
-      archive.addFile(ArchiveFile('$safeName.md', bytes.length, bytes));
+      final fileName = '${safeName.isEmpty ? 'note' : safeName}-${note.id}.md';
+      final bytes = Uint8List.fromList(utf8.encode(noteToMarkdown(note)));
+      archive.addFile(ArchiveFile(fileName, bytes.length, bytes));
     }
 
     final encoder = ZipEncoder();
-    return Uint8List.fromList(encoder.encode(archive)!);
+    return Uint8List.fromList(encoder.encode(archive));
   }
 
   Future<void> shareNote(NoteEntry note) async {
@@ -63,23 +65,34 @@ class ExportService {
         .replaceAll(RegExp(r'[^a-z0-9]'), '_')
         .toLowerCase();
 
-    final temp = await getTemporaryDirectory();
-    final file = File('${temp.path}/$safeName.md');
-    await file.writeAsString(content);
-
-    await Share.shareXFiles([
-      XFile(file.path),
-    ], text: 'Relix Export: ${noteContent.title}');
+    await SharePlus.instance.share(
+      ShareParams(
+        files: [
+          XFile.fromData(
+            Uint8List.fromList(utf8.encode(content)),
+            name: '${safeName.isEmpty ? 'relix-note' : safeName}-${note.id}.md',
+            mimeType: 'text/markdown',
+          ),
+        ],
+        text: 'Relix Export: ${noteContent.title}',
+      ),
+    );
   }
 
   Future<void> shareAll(List<NoteEntry> notes) async {
     final zipBuffer = await exportToZip(notes);
     final date = DateFormat('yyyy-MM-dd').format(DateTime.now());
-
-    final temp = await getTemporaryDirectory();
-    final file = File('${temp.path}/relix-export-$date.zip');
-    await file.writeAsBytes(zipBuffer);
-
-    await Share.shareXFiles([XFile(file.path)], text: 'Relix Backup ($date)');
+    await SharePlus.instance.share(
+      ShareParams(
+        files: [
+          XFile.fromData(
+            zipBuffer,
+            name: 'relix-export-$date.zip',
+            mimeType: 'application/zip',
+          ),
+        ],
+        text: 'Relix Backup ($date)',
+      ),
+    );
   }
 }

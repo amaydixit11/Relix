@@ -10,6 +10,7 @@ const DEV_SERVER_URL = process.env.RELIX_WEB_URL ?? 'http://localhost:3000';
 const DEV_SERVER_TIMEOUT_MS = 30000;
 const DEV_SERVER_POLL_MS = 500;
 const DAEMON_HEALTH_POLL_MS = 5000;
+const DAEMON_STARTUP_GRACE_MS = 15000;
 
 let mainWindow: BrowserWindow | null = null;
 let acordeProcess: ChildProcessWithoutNullStreams | null = null;
@@ -18,6 +19,8 @@ let isAppQuitting = false;
 let daemonHealthTimer: NodeJS.Timeout | null = null;
 let daemonStatus: 'starting' | 'healthy' | 'degraded' | 'missing-binary' = 'starting';
 let daemonStatusMessage = 'Starting ACORDE daemon';
+let daemonStartedAt = 0;
+let daemonWasHealthy = false;
 
 function getAcordeLogPath() {
   return path.join(app.getPath('userData'), 'acorde-data', 'acorde.log');
@@ -76,6 +79,8 @@ function startAcordeDaemon() {
 
   const logFile = path.join(dataDir, 'acorde.log');
   const logStream = createWriteStream(logFile, { flags: 'a' });
+  daemonStartedAt = Date.now();
+  daemonWasHealthy = false;
   updateDaemonStatus('starting', `Launching ACORDE from ${binary}`);
 
   acordeProcess = spawn(
@@ -129,12 +134,21 @@ async function pollDaemonHealth() {
     clearTimeout(timeout);
 
     if (response.ok) {
+      daemonWasHealthy = true;
       updateDaemonStatus('healthy', 'ACORDE daemon reachable.');
       return;
     }
 
+    if (!daemonWasHealthy && Date.now() - daemonStartedAt < DAEMON_STARTUP_GRACE_MS) {
+      updateDaemonStatus('starting', 'Waiting for ACORDE daemon to finish starting.');
+      return;
+    }
     updateDaemonStatus('degraded', `ACORDE status probe failed with ${response.status}.`);
   } catch {
+    if (!daemonWasHealthy && Date.now() - daemonStartedAt < DAEMON_STARTUP_GRACE_MS) {
+      updateDaemonStatus('starting', 'Waiting for ACORDE daemon to finish starting.');
+      return;
+    }
     updateDaemonStatus('degraded', 'ACORDE daemon is not responding to /status.');
   }
 }
