@@ -12,7 +12,8 @@ class HistoryPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final snapshot = controller.snapshot;
-    final notes = snapshot.notes;
+    final notes = [...snapshot.notes]
+      ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -20,7 +21,7 @@ class HistoryPage extends StatelessWidget {
         physics: const BouncingScrollPhysics(),
         slivers: [
           SliverPadding(
-            padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 40),
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
             sliver: SliverToBoxAdapter(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -62,8 +63,22 @@ class HistoryPage extends StatelessWidget {
             ),
           ),
           SliverPadding(
-            padding: const EdgeInsets.symmetric(horizontal: 48),
-            sliver: SliverList(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            sliver: notes.isEmpty
+                ? const SliverFillRemaining(
+                    hasScrollBody: false,
+                    child: Center(
+                      child: Text(
+                        'NO_RECORDS_YET',
+                        style: TextStyle(
+                          fontFamily: 'monospace',
+                          color: Colors.white24,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                  )
+                : SliverList(
               delegate: SliverChildBuilderDelegate((context, index) {
                 final note = notes[index];
                 return _buildHistoryEntry(context, note);
@@ -80,9 +95,9 @@ class HistoryPage extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: color.withOpacity(0.2)),
+        border: Border.all(color: color.withValues(alpha: 0.2)),
       ),
       child: Text(
         label,
@@ -117,7 +132,7 @@ class HistoryPage extends StatelessWidget {
             decoration: BoxDecoration(
               color: note.pendingSync
                   ? Colors.amber
-                  : const Color(0xFF7B88FF).withOpacity(0.3),
+                  : const Color(0xFF7B88FF).withValues(alpha: 0.3),
               shape: BoxShape.circle,
             ),
           ),

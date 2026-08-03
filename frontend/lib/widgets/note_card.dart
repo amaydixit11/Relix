@@ -41,7 +41,7 @@ class NoteCard extends StatelessWidget {
                   children: [
                     Expanded(
                       child: Text(
-                        noteContent.title.toUpperCase(),
+                        noteContent.title,
                         style: const TextStyle(
                           fontWeight: FontWeight.w900,
                           letterSpacing: 1,

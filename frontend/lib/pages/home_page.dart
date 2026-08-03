@@ -1,739 +1,636 @@
-import 'dart:math';
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import '../models.dart';
 import '../services/relix_controller.dart';
 import '../widgets/connection_banner.dart';
-import 'notes_page.dart';
-import 'note_editor_page.dart';
-import 'settings_page.dart';
 import 'graph_page.dart';
 import 'history_page.dart';
 import 'files_page.dart';
+import 'settings_page.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key, required this.controller});
-
   final RelixController controller;
 
   @override
   State<HomePage> createState() => _HomePageState();
 }
 
-enum HomeView { workstation, graph, files, settings, history }
+enum _LeftNav { notes, history, graph, files, settings }
 
 class _HomePageState extends State<HomePage> {
-  String? _activeNoteId;
-  HomeView _currentView = HomeView.workstation;
-  GraphData? _activeGraphData;
+  _LeftNav _leftNav = _LeftNav.notes;
+  String? _selectedNoteId;
+  bool _showCommandPalette = false;
+
+  // Editor state
+  late TextEditingController _titleController;
+  late TextEditingController _bodyController;
+  late TextEditingController _tagsController;
+  late FocusNode _titleFocus;
+  late FocusNode _bodyFocus;
+  Timer? _saveDebounce;
+  bool _isPreview = false;
+  List<NoteEntry> _backlinks = [];
+
+  // Notes list state
+  String _searchQuery = '';
+  Timer? _searchDebounce;
 
   @override
   void initState() {
     super.initState();
+    _titleController = TextEditingController();
+    _bodyController = TextEditingController();
+    _tagsController = TextEditingController();
+    _titleFocus = FocusNode();
+    _bodyFocus = FocusNode();
+    _titleController.addListener(_onEditorChange);
+    _bodyController.addListener(_onEditorChange);
+    _tagsController.addListener(_onEditorChange);
     widget.controller.addListener(_onStateChanged);
-  }
-
-  void _onActiveNoteChanged(String? id) {
-    setState(() {
-      _activeNoteId = id;
-      _activeGraphData = null;
-    });
-    if (id != null && id != 'new') {
-      _loadActiveGraph(id);
-    }
-  }
-
-  Future<void> _loadActiveGraph(String id) async {
-    try {
-      final data = await widget.controller.graph.getNeighbors(id, depth: 1);
-      if (mounted && _activeNoteId == id) {
-        setState(() => _activeGraphData = data);
-      }
-    } catch (_) {}
   }
 
   @override
   void dispose() {
+    _saveDebounce?.cancel();
+    _searchDebounce?.cancel();
     widget.controller.removeListener(_onStateChanged);
+    _titleController.removeListener(_onEditorChange);
+    _bodyController.removeListener(_onEditorChange);
+    _tagsController.removeListener(_onEditorChange);
+    _titleController.dispose();
+    _bodyController.dispose();
+    _tagsController.dispose();
+    _titleFocus.dispose();
+    _bodyFocus.dispose();
     super.dispose();
+  }
+
+  void _onEditorChange() {
+    _saveDebounce?.cancel();
+    _saveDebounce = Timer(const Duration(milliseconds: 500), _autoSave);
+  }
+
+  Future<void> _autoSave() async {
+    if (_selectedNoteId == null || _selectedNoteId == 'new') return;
+    final title = _titleController.text.trim();
+    final body = _bodyController.text.trim();
+    if (title.isEmpty) return;
+
+    final tags = _tagsController.text
+        .split(',')
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .where((e) => !_isSystemTag(e))
+        .toList();
+
+    try {
+      await widget.controller.updateNote(
+        id: _selectedNoteId!,
+        title: title,
+        body: body,
+        tags: tags,
+      );
+    } catch (_) {}
+  }
+
+  void _selectNote(String? id) {
+    if (_selectedNoteId != null && _selectedNoteId != 'new') {
+      _saveDebounce?.cancel();
+      _autoSave();
+    }
+
+    setState(() {
+      _selectedNoteId = id;
+      _isPreview = false;
+    });
+
+    if (id != null && id != 'new') {
+      final note = widget.controller.snapshot.notes
+          .cast<NoteEntry?>()
+          .firstWhere((n) => n?.id == id, orElse: () => null);
+      if (note != null && note.content is NoteContent) {
+        final nc = note.content as NoteContent;
+        _titleController.text = nc.title;
+        _bodyController.text = nc.body;
+        _tagsController.text = note.tags
+            .where((t) => !_isSystemTag(t))
+            .join(', ');
+      }
+      _loadBacklinks(id);
+    }
+  }
+
+  void _createNote() {
+    _selectNote('new');
+    _titleController.clear();
+    _bodyController.clear();
+    _tagsController.clear();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _titleFocus.requestFocus();
+    });
   }
 
   void _onStateChanged() {
     if (mounted) setState(() {});
   }
 
+  Future<void> _loadBacklinks(String id) async {
+    try {
+      final bl = await widget.controller.getBacklinks(id);
+      if (mounted && _selectedNoteId == id) {
+        setState(() => _backlinks = bl);
+      }
+    } catch (_) {
+      if (mounted) setState(() => _backlinks = []);
+    }
+  }
+
+  bool _handleGlobalKey(KeyEvent event) {
+    if (event is! KeyDownEvent) return false;
+    final isMod = HardwareKeyboard.instance.isMetaPressed ||
+        HardwareKeyboard.instance.isControlPressed;
+    final isShift = HardwareKeyboard.instance.isShiftPressed;
+    final key = event.logicalKey;
+
+    if (isMod && key == LogicalKeyboardKey.keyK && !_showCommandPalette) {
+      setState(() => _showCommandPalette = true);
+      return true;
+    }
+    if (isMod && key == LogicalKeyboardKey.keyN) {
+      _createNote();
+      return true;
+    }
+    if (isMod && key == LogicalKeyboardKey.keyG) {
+      setState(() => _leftNav = _LeftNav.graph);
+      return true;
+    }
+    if (isMod && key == LogicalKeyboardKey.keyH) {
+      setState(() => _leftNav = _LeftNav.history);
+      return true;
+    }
+    if (isMod && isShift && key == LogicalKeyboardKey.keyF) {
+      setState(() => _leftNav = _LeftNav.files);
+      return true;
+    }
+    if (isMod && key == LogicalKeyboardKey.comma) {
+      setState(() => _leftNav = _LeftNav.settings);
+      return true;
+    }
+    if (isMod && key == LogicalKeyboardKey.keyL) {
+      setState(() => _leftNav = _LeftNav.notes);
+      return true;
+    }
+    if (key == LogicalKeyboardKey.escape) {
+      if (_showCommandPalette) {
+        setState(() => _showCommandPalette = false);
+      } else if (_selectedNoteId != null) {
+        _selectNote(null);
+      }
+      return true;
+    }
+    if (isMod && key == LogicalKeyboardKey.keyP) {
+      setState(() => _isPreview = !_isPreview);
+      return true;
+    }
+    return false;
+  }
+
+  List<NoteEntry> get _filteredNotes {
+    final notes = widget.controller.snapshot.notes
+        .where((e) => e.type == 'note')
+        .toList();
+    if (_searchQuery.isEmpty) return notes;
+    final q = _searchQuery.toLowerCase();
+    return notes.where((e) {
+      final c = e.content as NoteContent?;
+      if (c == null) return false;
+      return c.title.toLowerCase().contains(q) ||
+          c.body.toLowerCase().contains(q) ||
+          e.tags.any((t) => t.toLowerCase().contains(q));
+    }).toList();
+  }
+
   @override
   Widget build(BuildContext context) {
-    final snapshot = widget.controller.snapshot;
-    final isDesktop = MediaQuery.of(context).size.width >= 1100;
-
-    return Scaffold(
-      body: Row(
-        children: [
-          // 1. Sidebar (Fixed Left)
-          SizedBox(width: 260, child: _buildSidebar(context)),
-          const VerticalDivider(width: 1),
-
-          // 2. Workbench (Central Editor/Explorer or Specialized View)
-          Expanded(
-            child: Column(
-              children: [
-                _buildWorkbenchHeader(context, snapshot),
-                const Divider(),
-                if (_currentView == HomeView.workstation) ...[
-                  ConnectionBanner(snapshot: snapshot),
-                  _buildWorkbenchBreadcrumbs(context, snapshot),
-                ],
-                Expanded(
-                  child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 300),
-                    child: KeyedSubtree(
-                      key: ValueKey(_activeNoteId ?? _currentView.name),
-                      child: _buildWorkbenchBody(),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          // 3. Inspector (Fixed Right) - Desktop Only
-          if (isDesktop && _currentView == HomeView.workstation) ...[
-            const VerticalDivider(width: 1),
-            SizedBox(width: 300, child: _buildInspector(context)),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _buildWorkbenchHeader(BuildContext context, SyncSnapshot snapshot) {
-    if (_currentView != HomeView.workstation) {
-      return Container(
-        height: 40,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        color: Theme.of(context).cardTheme.color,
-        child: Row(
-          children: [_tabItem(_getViewTitle(), active: true), const Spacer()],
-        ),
-      );
-    }
-    return _buildWorkbenchTabs(context, snapshot);
-  }
-
-  String _getViewTitle() {
-    switch (_currentView) {
-      case HomeView.graph:
-        return 'Neural Topology';
-      case HomeView.settings:
-        return 'Fleet Control';
-      case HomeView.files:
-        return 'File Archive';
-      case HomeView.history:
-        return 'TEMPORAL LOG';
-      default:
-        return 'Workstation';
-    }
-  }
-
-  Widget _buildWorkbenchTabs(BuildContext context, SyncSnapshot snapshot) {
-    NoteEntry? activeNote;
-    if (_activeNoteId != null && _activeNoteId != 'new') {
-      activeNote = snapshot.notes.cast<NoteEntry?>().firstWhere(
-        (n) => n?.id == _activeNoteId,
-        orElse: () => null,
-      );
-    }
-
-    return Container(
-      height: 48,
-      decoration: const BoxDecoration(
-        color: Color(0xFF131313),
-        border: Border(bottom: BorderSide(color: Color(0xFF1F1F1F))),
-      ),
-      child: Row(
-        children: [
-          const SizedBox(width: 8),
-          if (_activeNoteId != null)
-            _tabItem(
-              _activeNoteId == 'new'
-                  ? 'New Trace.md'
-                  : '${activeNote?.asNote?.title ?? 'Refreshing'}.md',
-              active: true,
-              onClose: () => _onActiveNoteChanged(null),
-            ),
-          if (_activeNoteId == null)
-            _tabItem('Neural Repository', active: true),
-          const Spacer(),
-          IconButton(
-            onPressed: () {},
-            icon: const Icon(
-              Icons.more_horiz_rounded,
-              size: 18,
-              color: Colors.white24,
-            ),
-          ),
-          const SizedBox(width: 8),
-        ],
-      ),
-    );
-  }
-
-  Widget _tabItem(String label, {bool active = false, VoidCallback? onClose}) {
-    return Container(
-      height: 48,
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      decoration: BoxDecoration(
-        color: active ? const Color(0xFF0F0F0F) : Colors.transparent,
-        border: active
-            ? const Border(
-                top: BorderSide(color: Color(0xFF7B88FF), width: 2),
-                left: BorderSide(color: Color(0xFF1F1F1F)),
-                right: BorderSide(color: Color(0xFF1F1F1F)),
-              )
-            : null,
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(
-            Icons.description_outlined,
-            size: 14,
-            color: Colors.white30,
-          ),
-          const SizedBox(width: 8),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: active ? FontWeight.w600 : FontWeight.w400,
-              color: active ? Colors.white : Colors.white24,
-            ),
-          ),
-          if (onClose != null) ...[
-            const SizedBox(width: 12),
-            InkWell(
-              onTap: onClose,
-              child: const Icon(
-                Icons.close_rounded,
-                size: 10,
-                color: Colors.white24,
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _buildWorkbenchBreadcrumbs(
-    BuildContext context,
-    SyncSnapshot snapshot,
-  ) {
-    return Container(
-      height: 44,
-      padding: const EdgeInsets.symmetric(horizontal: 24),
-      decoration: const BoxDecoration(
-        border: Border(bottom: BorderSide(color: Color(0xFF1F1F1F))),
-      ),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
+    return Focus(
+      autofocus: true,
+      onKeyEvent: (node, event) {
+        if (_handleGlobalKey(event)) return KeyEventResult.handled;
+        return KeyEventResult.ignored;
+      },
+      child: Scaffold(
+        backgroundColor: const Color(0xFF0F0F0F),
+        body: Row(
           children: [
-            const Text(
-              'LEXICON EDITOR',
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w900,
-                letterSpacing: 2,
-                color: Color(0xFF7B88FF),
-              ),
+            // LEFT: Navigation rail (60px)
+            _buildNavRail(),
+            const VerticalDivider(width: 1, color: Color(0xFF1F1F1F)),
+            // MIDDLE: Notes list (280px) or full page for other views
+            SizedBox(
+              width: _leftNav == _LeftNav.notes ? 280 : 220,
+              child: _buildMiddlePanel(),
             ),
-            const SizedBox(width: 48),
-            _menuItem('File'),
-            _menuItem('Edit', active: true),
-            _menuItem('View'),
-            _menuItem('Go'),
-            _menuItem('Tools'),
-            _menuItem('Help'),
+            const VerticalDivider(width: 1, color: Color(0xFF1F1F1F)),
+            // RIGHT: Editor or specialized view
+            Expanded(child: _buildRightPanel()),
           ],
         ),
       ),
     );
   }
 
-  Widget _menuItem(String label, {bool active = false}) {
-    return Padding(
-      padding: const EdgeInsets.only(right: 24),
-      child: Text(
-        label,
-        style: TextStyle(
-          fontSize: 12,
-          color: active ? Colors.white : Colors.white24,
-          fontWeight: active ? FontWeight.w700 : FontWeight.w500,
-          decoration: active ? TextDecoration.underline : null,
-          decorationThickness: 1,
+  Widget _buildNavRail() {
+    return Container(
+      width: 60,
+      color: const Color(0xFF131313),
+      child: Column(
+        children: [
+          const SizedBox(height: 16),
+          const Icon(Icons.auto_awesome_mosaic, color: Color(0xFF7B88FF), size: 24),
+          const SizedBox(height: 24),
+          _navRailItem(Icons.article_outlined, _LeftNav.notes, 'Notes'),
+          _navRailItem(Icons.history_rounded, _LeftNav.history, 'History'),
+          _navRailItem(Icons.hub_outlined, _LeftNav.graph, 'Graph'),
+          _navRailItem(Icons.folder_outlined, _LeftNav.files, 'Files'),
+          const Spacer(),
+          _navRailItem(Icons.settings_outlined, _LeftNav.settings, 'Settings'),
+          const SizedBox(height: 16),
+        ],
+      ),
+    );
+  }
+
+  Widget _navRailItem(IconData icon, _LeftNav nav, String label) {
+    final active = _leftNav == nav;
+    return Tooltip(
+      message: label,
+      child: InkWell(
+        onTap: () => setState(() => _leftNav = nav),
+        child: Container(
+          width: 60,
+          height: 48,
+          decoration: BoxDecoration(
+            border: active
+                ? const Border(left: BorderSide(color: Color(0xFF7B88FF), width: 2))
+                : null,
+          ),
+          child: Icon(icon, size: 20,
+              color: active ? Colors.white : Colors.white38),
         ),
       ),
     );
   }
 
-  Widget _buildWorkbenchBody() {
-    switch (_currentView) {
-      case HomeView.graph:
-        return GraphPage(controller: widget.controller);
-      case HomeView.settings:
-        return SettingsPage(controller: widget.controller);
-      case HomeView.files:
-        return FilesPage(controller: widget.controller);
-      case HomeView.history:
+  Widget _buildMiddlePanel() {
+    switch (_leftNav) {
+      case _LeftNav.notes:
+        return _buildNotesList();
+      case _LeftNav.history:
         return HistoryPage(controller: widget.controller);
-      case HomeView.workstation:
-        if (_activeNoteId == 'new') {
-          return NoteEditorPage(
-            controller: widget.controller,
-            onClose: () => _onActiveNoteChanged(null),
-          );
-        }
-        if (_activeNoteId == null) {
-          return NotesPage(
-            controller: widget.controller,
-            onNoteSelected: _onActiveNoteChanged,
-          );
-        }
-        final activeNote = widget.controller.snapshot.notes
-            .cast<NoteEntry?>()
-            .firstWhere((n) => n?.id == _activeNoteId, orElse: () => null);
-        if (activeNote == null) {
-          return NotesPage(
-            controller: widget.controller,
-            onNoteSelected: _onActiveNoteChanged,
-          );
-        }
-        return NoteEditorPage(
-          controller: widget.controller,
-          onClose: () => _onActiveNoteChanged(null),
-          existing: activeNote,
-        );
+      case _LeftNav.graph:
+        return GraphPage(controller: widget.controller);
+      case _LeftNav.files:
+        return FilesPage(controller: widget.controller);
+      case _LeftNav.settings:
+        return SettingsPage(controller: widget.controller);
     }
   }
 
-  Widget _buildSidebar(BuildContext context) {
+  Widget _buildNotesList() {
+    final notes = _filteredNotes;
     return Container(
       color: const Color(0xFF131313),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildBranding(),
-          _sidebarItem(
-            Icons.auto_awesome_mosaic_outlined,
-            'Vaults',
-            active: _currentView == HomeView.workstation,
-            onTap: () => setState(() => _currentView = HomeView.workstation),
-          ),
-          _sidebarItem(
-            Icons.history_rounded,
-            'History',
-            active: _currentView == HomeView.history,
-            onTap: () => setState(() => _currentView = HomeView.history),
-          ),
-          _sidebarItem(Icons.search_rounded, 'Search', active: false),
-          _sidebarItem(
-            Icons.folder_open_rounded,
-            'Files',
-            active: _currentView == HomeView.files,
-            onTap: () => setState(() => _currentView = HomeView.files),
-          ),
-          _sidebarItem(
-            Icons.settings_outlined,
-            'Settings',
-            active: _currentView == HomeView.settings,
-            onTap: () => setState(() => _currentView = HomeView.settings),
-          ),
-          _sidebarItem(Icons.archive_outlined, 'Archive'),
-          const SizedBox(height: 32),
+          // Search + New
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
             child: Row(
               children: [
-                const Text(
-                  'PERSONAL VAULT',
-                  style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 1.5,
-                    color: Colors.white24,
+                Expanded(
+                  child: TextField(
+                    onChanged: (v) {
+                      _searchDebounce?.cancel();
+                      _searchDebounce = Timer(const Duration(milliseconds: 150), () {
+                        if (mounted) setState(() => _searchQuery = v);
+                      });
+                    },
+                    style: const TextStyle(fontSize: 12),
+                    decoration: InputDecoration(
+                      hintText: 'Search...',
+                      hintStyle: const TextStyle(fontSize: 11, color: Colors.white24),
+                      prefixIcon: const Icon(Icons.search_rounded, size: 16, color: Colors.white24),
+                      border: InputBorder.none,
+                      contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                      filled: false,
+                    ),
                   ),
                 ),
-                const Spacer(),
-                InkWell(
-                  onTap: () => _onActiveNoteChanged('new'),
-                  child: const Icon(
-                    Icons.add_rounded,
-                    size: 16,
-                    color: Colors.white24,
-                  ),
+                IconButton(
+                  icon: const Icon(Icons.add_rounded, color: Color(0xFF7B88FF)),
+                  onPressed: _createNote,
+                  tooltip: 'New note (Ctrl+N)',
                 ),
               ],
             ),
           ),
-          Expanded(child: _buildFileTree()),
-          const Divider(),
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: InkWell(
-              onTap: () => _onActiveNoteChanged('new'),
-              borderRadius: BorderRadius.circular(8),
-              child: Container(
-                width: double.infinity,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF7B88FF).withOpacity(0.15),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(
-                    color: const Color(0xFF7B88FF).withOpacity(0.3),
-                  ),
-                ),
-                child: const Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.add_rounded, size: 18, color: Color(0xFF7B88FF)),
-                    SizedBox(width: 8),
-                    Text(
-                      'New Entry',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFF7B88FF),
-                      ),
+          // Connection status
+          ConnectionBanner(snapshot: widget.controller.snapshot),
+          // Notes
+          Expanded(
+            child: notes.isEmpty
+                ? Center(
+                    child: Text(
+                      _searchQuery.isNotEmpty ? 'No matches' : 'No notes yet',
+                      style: const TextStyle(color: Colors.white24, fontSize: 12),
                     ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildBranding() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 24, 20, 32),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Expanded(
-                child: Text(
-                  'THE ARCHIVIST',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w900,
-                    fontSize: 16,
-                    letterSpacing: 1.5,
+                  )
+                : ListView.builder(
+                    itemCount: notes.length,
+                    itemBuilder: (context, i) {
+                      final note = notes[i];
+                      final nc = note.content as NoteContent?;
+                      if (nc == null) return const SizedBox.shrink();
+                      final isSelected = _selectedNoteId == note.id;
+                      return InkWell(
+                        onTap: () => _selectNote(note.id),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? const Color(0xFF7B88FF).withValues(alpha: 0.12)
+                                : null,
+                            border: Border(
+                              left: isSelected
+                                  ? const BorderSide(color: Color(0xFF7B88FF), width: 2)
+                                  : BorderSide.none,
+                            ),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      nc.title,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
+                                        color: isSelected ? Colors.white : Colors.white70,
+                                      ),
+                                    ),
+                                  ),
+                                  if (note.pendingSync)
+                                    const Icon(Icons.circle, size: 6, color: Colors.amber),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                nc.body.isEmpty ? '(empty)' : nc.body,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(fontSize: 11, color: Colors.white24, height: 1.4),
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                _timeAgo(note.updatedAt),
+                                style: const TextStyle(fontSize: 10, color: Colors.white10),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
                   ),
-                ),
-              ),
-              CircleAvatar(
-                radius: 14,
-                backgroundColor: const Color(0xFF2DD4BF),
-                child: const Icon(
-                  Icons.person,
-                  size: 16,
-                  color: Colors.black87,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          const Text(
-            'Primary Vault',
-            style: TextStyle(
-              fontSize: 10,
-              color: Colors.white24,
-              fontWeight: FontWeight.w600,
-            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _sidebarItem(
-    IconData icon,
-    String label, {
-    bool active = false,
-    VoidCallback? onTap,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(8),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          decoration: BoxDecoration(
-            color: active ? Colors.white.withOpacity(0.05) : null,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Row(
-            children: [
-              Icon(
-                icon,
-                size: 18,
-                color: active ? Colors.white : Colors.white24,
-              ),
-              const SizedBox(width: 14),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: active ? FontWeight.w700 : FontWeight.w500,
-                  color: active ? Colors.white : Colors.white24,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
+  Widget _buildRightPanel() {
+    if (_leftNav != _LeftNav.notes) return const SizedBox.shrink();
 
-  Widget _buildFileTree() {
-    final notes = widget.controller.snapshot.notes
-        .where((n) => n.type == 'note')
-        .toList();
-    return ListView(
-      padding: const EdgeInsets.only(top: 8),
-      children: [
-        _treeFolder('Projects', open: true),
-        ...notes.map((n) => _treeItem(n.asNote?.title ?? 'Untitled', n.id)),
-        _treeFolder('Archive'),
-        _treeItem('Daily Journal', 'journal'),
-      ],
-    );
-  }
-
-  Widget _treeFolder(String name, {bool open = false}) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: Row(
-        children: [
-          Icon(
-            open
-                ? Icons.keyboard_arrow_down_rounded
-                : Icons.keyboard_arrow_right_rounded,
-            size: 16,
-            color: Colors.white24,
-          ),
-          const SizedBox(width: 8),
-          const Icon(Icons.folder_rounded, size: 16, color: Colors.white24),
-          const SizedBox(width: 10),
-          Text(
-            name,
-            style: const TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              color: Colors.white54,
-              letterSpacing: 0.5,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _treeItem(String title, String id) {
-    final active = _activeNoteId == id;
-    return InkWell(
-      onTap: () => _onActiveNoteChanged(id),
-      child: Container(
-        height: 32,
-        margin: const EdgeInsets.only(left: 44, right: 12, bottom: 2),
-        padding: const EdgeInsets.symmetric(horizontal: 8),
-        decoration: BoxDecoration(
-          color: active ? const Color(0xFF7B88FF).withOpacity(0.1) : null,
-          borderRadius: BorderRadius.circular(4),
-          border: active
-              ? Border.all(color: const Color(0xFF7B88FF).withOpacity(0.2))
-              : null,
-        ),
-        child: Row(
+    if (_selectedNoteId == null) {
+      return const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              Icons.description_outlined,
-              size: 14,
-              color: active ? const Color(0xFF7B88FF) : Colors.white24,
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: active ? FontWeight.w800 : FontWeight.w500,
-                  color: active ? Colors.white : Colors.white54,
-                  letterSpacing: -0.2,
-                ),
-              ),
-            ),
+            Icon(Icons.article_outlined, size: 64, color: Colors.white10),
+            SizedBox(height: 16),
+            Text('Select a note or create a new one', style: TextStyle(color: Colors.white24)),
+            SizedBox(height: 8),
+            Text('Ctrl+N for new note  •  Ctrl+K for search', style: TextStyle(color: Colors.white10, fontSize: 11)),
           ],
         ),
-      ),
-    );
-  }
-
-  Widget _buildInspector(BuildContext context) {
-    if (_activeNoteId == null || _activeNoteId == 'new') {
-      return Container(
-        color: const Color(0xFF131313),
-        child: const Center(
-          child: Text(
-            'Target an indexed note to inspect',
-            style: TextStyle(color: Colors.white10, fontSize: 11),
-          ),
-        ),
       );
     }
 
-    final note = widget.controller.snapshot.notes.cast<NoteEntry?>().firstWhere(
-      (n) => n?.id == _activeNoteId,
-      orElse: () => null,
-    );
+    if (_isPreview) {
+      return _buildPreview();
+    }
 
-    if (note == null) return const SizedBox();
-
-    return Container(
-      color: const Color(0xFF131313),
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'INSPECTOR',
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w900,
-              letterSpacing: 2,
-              color: Colors.white24,
-            ),
-          ),
-          const SizedBox(height: 24),
-          const Row(
-            children: [
-              Text(
-                'METADATA',
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w900,
-                  color: Color(0xFF7B88FF),
-                ),
-              ),
-              SizedBox(width: 24),
-              Text(
-                'LINKS',
-                style: TextStyle(fontSize: 10, color: Colors.white24),
-              ),
-              SizedBox(width: 24),
-              Text(
-                'OUTLINE',
-                style: TextStyle(fontSize: 10, color: Colors.white24),
-              ),
-            ],
-          ),
-          const Divider(height: 32),
-          _inspectorField('Created', _formatDate(note.createdAt)),
-          _inspectorField('Last Modified', 'Just now'),
-          const SizedBox(height: 16),
-          const Text(
-            'Keywords',
-            style: TextStyle(fontSize: 10, color: Colors.white24),
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _inspectorTag('Vault', active: true),
-              _inspectorTag('Neural'),
-              _inspectorTag('Distributed'),
-            ],
-          ),
-          const SizedBox(height: 40),
-          const Text(
-            'GRAPH PREVIEW',
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w900,
-              letterSpacing: 1,
-              color: Colors.white24,
-            ),
-          ),
-          const SizedBox(height: 16),
-          _buildGraphPlaceholder(),
-          const SizedBox(height: 40),
-          const Text(
-            '2 BACKLINKS',
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w900,
-              color: Colors.white24,
-            ),
-          ),
-          const SizedBox(height: 16),
-          _backlinkItem('Index of Cognitive Tools'),
-          _backlinkItem('Weekly Research Log #4'),
-          const Spacer(),
-          const Row(
-            children: [
-              Text(
-                'Show raw JSON metadata',
-                style: TextStyle(fontSize: 11, color: Colors.white24),
-              ),
-              Spacer(),
-              Icon(
-                Icons.arrow_forward_rounded,
-                size: 14,
-                color: Colors.white24,
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
+    return _buildEditor();
   }
 
-  Widget _inspectorField(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 20),
+  Widget _buildEditor() {
+    return Container(
+      color: const Color(0xFF0F0F0F),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            label,
-            style: const TextStyle(
-              fontSize: 10,
-              color: Colors.white24,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 6),
+          // Toolbar
           Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            decoration: BoxDecoration(
-              color: Colors.black.withOpacity(0.3),
-              borderRadius: BorderRadius.circular(6),
-              border: Border.all(color: const Color(0xFF1F1F1F)),
+            height: 40,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            decoration: const BoxDecoration(
+              border: Border(bottom: BorderSide(color: Color(0xFF1F1F1F))),
             ),
-            child: Text(
-              value,
-              style: const TextStyle(
-                fontFamily: 'monospace',
-                fontSize: 12,
-                color: Colors.white70,
+            child: Row(
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.close_rounded, size: 16, color: Colors.white38),
+                  onPressed: () => _selectNote(null),
+                  tooltip: 'Close (Esc)',
+                ),
+                const SizedBox(width: 8),
+                if (_selectedNoteId != 'new')
+                  IconButton(
+                    icon: const Icon(Icons.delete_outline_rounded, size: 16, color: Colors.redAccent),
+                    onPressed: _deleteCurrentNote,
+                    tooltip: 'Delete',
+                  ),
+                const Spacer(),
+                TextButton(
+                  onPressed: () => setState(() => _isPreview = true),
+                  child: const Text('PREVIEW', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Colors.white54)),
+                ),
+                const SizedBox(width: 8),
+              ],
+            ),
+          ),
+          // Editor
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  TextField(
+                    controller: _titleController,
+                    focusNode: _titleFocus,
+                    style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w900, letterSpacing: -0.5),
+                    decoration: const InputDecoration(
+                      hintText: 'Title',
+                      border: InputBorder.none,
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  TextField(
+                    controller: _tagsController,
+                    style: const TextStyle(fontFamily: 'monospace', fontSize: 11, color: Color(0xFFA267F6)),
+                    decoration: const InputDecoration(
+                      hintText: 'tags, separated, by, commas',
+                      prefixIcon: Icon(Icons.tag_rounded, size: 14, color: Colors.white10),
+                      border: InputBorder.none,
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
+                  const Divider(height: 24),
+                  TextField(
+                    controller: _bodyController,
+                    focusNode: _bodyFocus,
+                    maxLines: null,
+                    style: const TextStyle(fontSize: 14, height: 1.7),
+                    decoration: const InputDecoration(
+                      hintText: 'Start writing... (Markdown supported)',
+                      border: InputBorder.none,
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
+                  const SizedBox(height: 80),
+                ],
+              ),
+            ),
+          ),
+          // Backlinks bar
+          if (_backlinks.isNotEmpty && _selectedNoteId != 'new')
+            Container(
+              height: 120,
+              decoration: const BoxDecoration(
+                border: Border(top: BorderSide(color: Color(0xFF1F1F1F))),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+                    child: Text('${_backlinks.length} BACKLINK', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1, color: Colors.white24)),
+                  ),
+                  Expanded(
+                    child: ListView(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      children: _backlinks.take(5).map((bl) {
+                        final nc = bl.content as NoteContent?;
+                        if (nc == null) return const SizedBox.shrink();
+                        return InkWell(
+                          onTap: () => _selectNote(bl.id),
+                          child: Container(
+                            width: 200,
+                            margin: const EdgeInsets.only(right: 8),
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF131313),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: const Color(0xFF1F1F1F)),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(nc.title, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF7B88FF)), maxLines: 1, overflow: TextOverflow.ellipsis),
+                                const SizedBox(height: 4),
+                                Text(nc.body, style: const TextStyle(fontSize: 10, color: Colors.white24), maxLines: 3, overflow: TextOverflow.ellipsis),
+                              ],
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPreview() {
+    return Container(
+      color: const Color(0xFF0F0F0F),
+      child: Column(
+        children: [
+          Container(
+            height: 40,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            decoration: const BoxDecoration(
+              border: Border(bottom: BorderSide(color: Color(0xFF1F1F1F))),
+            ),
+            child: Row(
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.close_rounded, size: 16, color: Colors.white38),
+                  onPressed: () => _selectNote(null),
+                ),
+                const Spacer(),
+                TextButton(
+                  onPressed: () => setState(() => _isPreview = false),
+                  child: const Text('EDIT', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Colors.white54)),
+                ),
+                const SizedBox(width: 8),
+              ],
+            ),
+          ),
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(32),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _titleController.text.isEmpty ? 'Untitled' : _titleController.text,
+                    style: const TextStyle(fontSize: 32, fontWeight: FontWeight.w900, letterSpacing: -1),
+                  ),
+                  if (_tagsController.text.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 6,
+                      children: _tagsController.text.split(',').map((t) => _tagChip(t.trim())).toList(),
+                    ),
+                  ],
+                  const SizedBox(height: 24),
+                  const Divider(),
+                  const SizedBox(height: 24),
+                  MarkdownBody(
+                    data: _bodyController.text,
+                    selectable: true,
+                    styleSheet: MarkdownStyleSheet(
+                      p: const TextStyle(fontSize: 15, height: 1.7, color: Colors.white70),
+                      h1: const TextStyle(fontWeight: FontWeight.w900, fontSize: 24),
+                      h2: const TextStyle(fontWeight: FontWeight.w800, fontSize: 20),
+                      code: const TextStyle(fontFamily: 'monospace', backgroundColor: Color(0xFF131313), color: Color(0xFF2DD4BF)),
+                      codeblockDecoration: BoxDecoration(color: const Color(0xFF131313), borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0xFF1F1F1F))),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -742,176 +639,47 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _inspectorTag(String label, {bool active = false}) {
+  Widget _tagChip(String tag) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: active
-            ? Theme.of(context).colorScheme.primary.withOpacity(0.2)
-            : Colors.white10,
+        color: const Color(0xFFA267F6).withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(4),
-        border: active
-            ? Border.all(
-                color: Theme.of(context).colorScheme.primary.withOpacity(0.3),
-              )
-            : null,
+        border: Border.all(color: const Color(0xFFA267F6).withValues(alpha: 0.3)),
       ),
-      child: Text(
-        label,
-        style: TextStyle(
-          fontSize: 10,
-          fontWeight: FontWeight.w700,
-          color: active
-              ? Theme.of(context).colorScheme.primary
-              : Colors.white54,
-        ),
-      ),
+      child: Text('#$tag', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Color(0xFFA267F6))),
     );
   }
 
-  Widget _backlinkItem(String title) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.02),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.white.withOpacity(0.02)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: const TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.bold,
-              color: Colors.white70,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            '"...essential to explore this system for the next sprint..."',
-            style: TextStyle(
-              fontSize: 10,
-              color: Colors.white.withOpacity(0.1),
-              fontStyle: FontStyle.italic,
-            ),
-          ),
+  Future<void> _deleteCurrentNote() async {
+    if (_selectedNoteId == null || _selectedNoteId == 'new') return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        backgroundColor: const Color(0xFF131313),
+        title: const Text('Delete note?', style: TextStyle(fontWeight: FontWeight.w700)),
+        content: const Text('This will permanently delete this note.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(c, true), style: FilledButton.styleFrom(backgroundColor: Colors.redAccent), child: const Text('Delete')),
         ],
       ),
     );
-  }
-
-  Widget _buildGraphPlaceholder() {
-    if (_activeGraphData == null) {
-      return Container(
-        height: 200,
-        width: double.infinity,
-        decoration: BoxDecoration(
-          color: Colors.black.withOpacity(0.2),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: const Color(0xFF1F1F1F)),
-        ),
-        child: const Center(
-          child: SizedBox(
-            width: 20,
-            height: 20,
-            child: CircularProgressIndicator(
-              strokeWidth: 2,
-              color: Colors.white10,
-            ),
-          ),
-        ),
-      );
+    if (confirmed == true) {
+      await widget.controller.deleteNote(_selectedNoteId!);
+      _selectNote(null);
     }
-
-    return Container(
-      height: 200,
-      width: double.infinity,
-      decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.2),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFF1F1F1F)),
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(12),
-        child: CustomPaint(
-          painter: _GraphPainter(const Color(0xFF7B88FF), _activeGraphData!),
-        ),
-      ),
-    );
   }
 
-  String _formatDate(int seconds) {
-    if (seconds <= 0) return '2024-05-12T14:20:00Z';
+  String _timeAgo(int seconds) {
+    if (seconds <= 0) return 'just now';
     final date = DateTime.fromMillisecondsSinceEpoch(seconds * 1000);
-    return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}T${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}:00Z';
-  }
-}
-
-class _GraphPainter extends CustomPainter {
-  _GraphPainter(this.primary, this.data);
-  final Color primary;
-  final GraphData data;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final gridPaint = Paint()
-      ..color = Colors.white.withOpacity(0.03)
-      ..strokeWidth = 1;
-
-    for (double i = 0; i < size.width; i += 20) {
-      canvas.drawLine(Offset(i, 0), Offset(i, size.height), gridPaint);
-    }
-    for (double i = 0; i < size.height; i += 20) {
-      canvas.drawLine(Offset(0, i), Offset(size.width, i), gridPaint);
-    }
-
-    if (data.nodes.isEmpty) return;
-
-    final center = Offset(size.width / 2, size.height / 2);
-    final nodePositions = <String, Offset>{};
-
-    // Focus node at center
-    final focusNode = data.nodes.first;
-    nodePositions[focusNode.id] = center;
-
-    // Neighbors in a circle
-    final neighborNodes = data.nodes.skip(1).toList();
-    for (int i = 0; i < neighborNodes.length; i++) {
-      final angle = (2 * pi / neighborNodes.length) * i;
-      final radius = min(size.width, size.height) * 0.35;
-      nodePositions[neighborNodes[i].id] = Offset(
-        center.dx + radius * cos(angle),
-        center.dy + radius * sin(angle),
-      );
-    }
-
-    final linePaint = Paint()
-      ..color = Colors.white.withOpacity(0.1)
-      ..strokeWidth = 1;
-
-    for (final edge in data.edges) {
-      final p1 = nodePositions[edge.source];
-      final p2 = nodePositions[edge.target];
-      if (p1 != null && p2 != null) {
-        canvas.drawLine(p1, p2, linePaint);
-      }
-    }
-
-    for (final nodeId in nodePositions.keys) {
-      final pos = nodePositions[nodeId]!;
-      final isFocus = nodeId == focusNode.id;
-      if (isFocus) {
-        canvas.drawCircle(pos, 6, Paint()..color = primary.withOpacity(0.2));
-        canvas.drawCircle(pos, 3, Paint()..color = primary);
-      } else {
-        canvas.drawCircle(pos, 2, Paint()..color = Colors.white24);
-      }
-    }
+    final diff = DateTime.now().difference(date);
+    if (diff.inMinutes < 1) return 'just now';
+    if (diff.inHours < 1) return '${diff.inMinutes}m ago';
+    if (diff.inDays < 1) return '${diff.inHours}h ago';
+    return '${date.day}/${date.month}';
   }
 
-  @override
-  bool shouldRepaint(CustomPainter oldDelegate) => true;
+  bool _isSystemTag(String tag) => tag.startsWith('outlink:') || tag.startsWith('backlink:');
 }

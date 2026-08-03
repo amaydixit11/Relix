@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import '../models.dart';
 import '../services/relix_controller.dart';
+import '../widgets/markdown_toolbar.dart';
 
 class NoteEditorPage extends StatefulWidget {
   const NoteEditorPage({
@@ -23,10 +25,12 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
   late TextEditingController _titleController;
   late TextEditingController _bodyController;
   late TextEditingController _tagsController;
+  late FocusNode _bodyFocusNode;
   int? _baselineUpdatedAt;
   bool _saving = false;
   bool _isPreview = false;
   List<NoteEntry> _backlinks = [];
+  bool _showBacklinks = false;
 
   @override
   void initState() {
@@ -40,6 +44,7 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
               .join(', ') ??
           '',
     );
+    _bodyFocusNode = FocusNode();
     _baselineUpdatedAt =
         widget.existing?.baselineUpdatedAt ?? widget.existing?.updatedAt;
     if (widget.existing != null) {
@@ -59,7 +64,91 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
     _titleController.dispose();
     _bodyController.dispose();
     _tagsController.dispose();
+    _bodyFocusNode.dispose();
     super.dispose();
+  }
+
+  /// Handle markdown keyboard shortcuts
+  bool _handleBodyKey(KeyEvent event) {
+    if (event is! KeyDownEvent) return false;
+
+    final isMeta = HardwareKeyboard.instance.isMetaPressed;
+    final isCtrl = HardwareKeyboard.instance.isControlPressed;
+    final isMod = isMeta || isCtrl;
+
+    // Ctrl/Cmd + B → bold
+    if (isMod && event.logicalKey == LogicalKeyboardKey.keyB) {
+      _wrapBodySelection('**');
+      return true;
+    }
+    // Ctrl/Cmd + I → italic
+    if (isMod && event.logicalKey == LogicalKeyboardKey.keyI) {
+      _wrapBodySelection('*');
+      return true;
+    }
+    // Ctrl/Cmd + S → Save
+    if (isMod && event.logicalKey == LogicalKeyboardKey.keyS) {
+      _save();
+      return true;
+    }
+    // Ctrl/Cmd + Shift + K → inline code (avoid conflict with Cmd+K command palette)
+    if (isMod && HardwareKeyboard.instance.isShiftPressed && event.logicalKey == LogicalKeyboardKey.keyK) {
+      _wrapBodySelection('`');
+      return true;
+    }
+    // Ctrl/Cmd + Shift + L → wikilink
+    if (isMod &&
+        HardwareKeyboard.instance.isShiftPressed &&
+        event.logicalKey == LogicalKeyboardKey.keyL) {
+      _wrapBodySelection('[[', ']]');
+      return true;
+    }
+    // Tab → indent or insert code block marker
+    if (event.logicalKey == LogicalKeyboardKey.tab) {
+      if (!HardwareKeyboard.instance.isShiftPressed) {
+        _insertBodyText('  ');
+      }
+      return true;
+    }
+
+    return false;
+  }
+
+  void _wrapBodySelection(String before, [String? after]) {
+    final text = _bodyController.text;
+    final start = _bodyController.selection.baseOffset;
+    final end = _bodyController.selection.extentOffset;
+    if (start < 0 || end < 0) {
+      final pos = _bodyController.selection.baseOffset;
+      if (pos < 0) return;
+      final newText = text.replaceRange(pos, pos, before);
+      _bodyController.value = TextEditingValue(
+        text: newText,
+        selection: TextSelection.collapsed(offset: pos + before.length),
+      );
+      return;
+    }
+    final selStart = start < end ? start : end;
+    final selEnd = start < end ? end : start;
+    final wrapped = '$before${text.substring(selStart, selEnd)}${after ?? before}';
+    _bodyController.value = TextEditingValue(
+      text: text.replaceRange(selStart, selEnd, wrapped),
+      selection: TextSelection(
+        baseOffset: selStart + before.length,
+        extentOffset: selStart + before.length + (selEnd - selStart),
+      ),
+    );
+  }
+
+  void _insertBodyText(String text) {
+    final pos = _bodyController.selection.baseOffset;
+    if (pos < 0) return;
+    final current = _bodyController.text;
+    final newText = current.replaceRange(pos, pos, text);
+    _bodyController.value = TextEditingValue(
+      text: newText,
+      selection: TextSelection.collapsed(offset: pos + text.length),
+    );
   }
 
   @override
@@ -91,9 +180,18 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
                 color: Colors.redAccent,
                 size: 20,
               ),
-              tooltip: 'DESTROY_trace',
+              tooltip: 'Delete note',
             ),
           const VerticalDivider(width: 1, indent: 12, endIndent: 12),
+          IconButton(
+            onPressed: () => setState(() => _showBacklinks = !_showBacklinks),
+            icon: Badge(
+              isLabelVisible: _backlinks.isNotEmpty,
+              label: Text('${_backlinks.length}'),
+              child: const Icon(Icons.arrow_left_rounded, size: 20),
+            ),
+            tooltip: 'Backlinks',
+          ),
           TextButton(
             onPressed: () => setState(() => _isPreview = !_isPreview),
             child: Text(
@@ -135,68 +233,142 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
       ),
       body: Container(
         color: const Color(0xFF0F0F0F),
-        child: _isPreview ? _buildPreview() : _buildEditor(),
+        child: Row(
+          children: [
+            // Main editor/preview
+            Expanded(
+              child: Column(
+                children: [
+                  if (!_isPreview)
+                    MarkdownToolbar(
+                      controller: _bodyController,
+                      focusNode: _bodyFocusNode,
+                    ),
+                  Expanded(
+                    child: _isPreview ? _buildPreview() : _buildEditor(),
+                  ),
+                ],
+              ),
+            ),
+            // Backlinks sidebar
+            if (_showBacklinks && _backlinks.isNotEmpty)
+              Container(
+                width: 280,
+                decoration: const BoxDecoration(
+                  color: Color(0xFF131313),
+                  border: Border(left: BorderSide(color: Color(0xFF1F1F1F))),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Row(
+                        children: [
+                          const Text(
+                            'BACKLINKS',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 1.5,
+                              color: Colors.white24,
+                            ),
+                          ),
+                          const Spacer(),
+                          Text(
+                            '${_backlinks.length}',
+                            style: const TextStyle(
+                              fontSize: 10,
+                              color: Color(0xFF7B88FF),
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Divider(height: 1, color: Color(0xFF1F1F1F)),
+                    Expanded(
+                      child: ListView(
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        children: _backlinks.map(_backlinkCard).toList(),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildEditor() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 32),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          TextField(
-            controller: _titleController,
-            style: const TextStyle(
-              fontSize: 32,
-              fontWeight: FontWeight.w900,
-              letterSpacing: -1,
-            ),
-            decoration: const InputDecoration(
-              hintText: 'Enter title...',
-              border: InputBorder.none,
-              enabledBorder: InputBorder.none,
-              focusedBorder: InputBorder.none,
-              fillColor: Colors.transparent,
-            ),
-          ),
-          const SizedBox(height: 8),
-          TextField(
-            controller: _tagsController,
-            style: const TextStyle(
-              fontFamily: 'monospace',
-              fontSize: 11,
-              color: Color(0xFFA267F6),
-            ),
-            decoration: const InputDecoration(
-              hintText: 'tags, separated, by, commas',
-              border: InputBorder.none,
-              enabledBorder: InputBorder.none,
-              focusedBorder: InputBorder.none,
-              fillColor: Colors.transparent,
-              prefixIcon: Icon(
-                Icons.tag_rounded,
-                size: 14,
-                color: Colors.white10,
+    return Focus(
+      onKeyEvent: (node, event) {
+        if (event is! KeyDownEvent) return KeyEventResult.ignored;
+        if (_handleBodyKey(event)) return KeyEventResult.handled;
+        return KeyEventResult.ignored;
+      },
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(
+              controller: _titleController,
+              autofocus: widget.existing == null,
+              style: const TextStyle(
+                fontSize: 32,
+                fontWeight: FontWeight.w900,
+                letterSpacing: -1,
+              ),
+              decoration: const InputDecoration(
+                hintText: 'Enter title...',
+                border: InputBorder.none,
+                enabledBorder: InputBorder.none,
+                focusedBorder: InputBorder.none,
+                fillColor: Colors.transparent,
               ),
             ),
-          ),
-          const Divider(height: 48),
-          TextField(
-            controller: _bodyController,
-            maxLines: null,
-            style: const TextStyle(fontSize: 15, height: 1.6),
-            decoration: const InputDecoration(
-              hintText: 'Begin cognitive recording...',
-              border: InputBorder.none,
-              enabledBorder: InputBorder.none,
-              focusedBorder: InputBorder.none,
-              fillColor: Colors.transparent,
+            const SizedBox(height: 8),
+            TextField(
+              controller: _tagsController,
+              style: const TextStyle(
+                fontFamily: 'monospace',
+                fontSize: 11,
+                color: Color(0xFFA267F6),
+              ),
+              decoration: const InputDecoration(
+                hintText: 'tags, separated, by, commas',
+                border: InputBorder.none,
+                enabledBorder: InputBorder.none,
+                focusedBorder: InputBorder.none,
+                fillColor: Colors.transparent,
+                prefixIcon: Icon(
+                  Icons.tag_rounded,
+                  size: 14,
+                  color: Colors.white10,
+                ),
+              ),
             ),
-          ),
-          const SizedBox(height: 100),
-        ],
+            const Divider(height: 48),
+            TextField(
+              controller: _bodyController,
+              focusNode: _bodyFocusNode,
+              maxLines: null,
+              autofocus: widget.existing != null,
+              style: const TextStyle(fontSize: 15, height: 1.6),
+              decoration: const InputDecoration(
+                hintText: 'Begin cognitive recording...',
+                border: InputBorder.none,
+                enabledBorder: InputBorder.none,
+                focusedBorder: InputBorder.none,
+                fillColor: Colors.transparent,
+              ),
+            ),
+            const SizedBox(height: 100),
+          ],
+        ),
       ),
     );
   }
@@ -206,14 +378,14 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
     final body = _bodyController.text;
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 32),
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             title.isEmpty ? 'Untitled Trace' : title,
             style: const TextStyle(
-              fontSize: 40,
+              fontSize: 32,
               fontWeight: FontWeight.w900,
               letterSpacing: -1.5,
               color: Colors.white,
@@ -258,11 +430,62 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
             Wrap(
               spacing: 12,
               runSpacing: 12,
-              children: _backlinks.map((bl) => _buildBacklinkCard(bl)).toList(),
+              children: _backlinks.map(_buildBacklinkCard).toList(),
             ),
           ],
           const SizedBox(height: 100),
         ],
+      ),
+    );
+  }
+
+  Widget _backlinkCard(NoteEntry note) {
+    final content = note.content as NoteContent;
+    return InkWell(
+      onTap: () {
+        // Navigate to the backlinking note by updating the editor
+        _close();
+        // Signal through controller to open this note
+        // For now, we can't directly navigate from here, so show it in preview
+        setState(() {
+          _titleController.text = content.title;
+          _bodyController.text = content.body;
+          _tagsController.text = note.tags
+              .where((tag) => !_isSystemTag(tag))
+              .join(', ');
+        });
+      },
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        width: double.infinity,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: const Color(0xFF131313),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: const Color(0xFF1F1F1F)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              content.title,
+              style: const TextStyle(
+                fontWeight: FontWeight.w700,
+                fontSize: 12,
+                color: Color(0xFF7B88FF),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              content.body.length > 80
+                  ? '${content.body.substring(0, 80)}...'
+                  : content.body,
+              style: const TextStyle(fontSize: 10, color: Colors.white24),
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -394,41 +617,49 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
   }
 
   Future<String> _showConflictDialog(NoteEntry latest) async {
+    final localTime = _formatTimestamp(_baselineUpdatedAt ?? 0);
+    final remoteTime = _formatTimestamp(latest.updatedAt);
     final res = await showDialog<String>(
       context: context,
       builder: (c) => AlertDialog(
         backgroundColor: const Color(0xFF0F0F0F),
         title: const Text('CONFLICT_DETECTED', style: TextStyle(fontSize: 12)),
         content: Text(
-          'SERVER_VERSION_NEWER (ID: ${latest.id}).\n'
-          'REMOTE_TS: ${latest.updatedAt}\n'
-          'LOCAL_BL: $_baselineUpdatedAt\n\n'
-          'PROCEED_WITH_OVERWRITE?',
-          style: const TextStyle(fontSize: 14, fontFamily: 'monospace'),
+          'A newer version of this note exists on another device.\n\n'
+          'Remote: $remoteTime\n'
+          'Local baseline: $localTime\n\n'
+          'How would you like to resolve this?',
+          style: const TextStyle(fontSize: 14),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(c, 'cancel'),
-            child: const Text('CANCEL'),
+            child: const Text('Cancel'),
           ),
           TextButton(
             onPressed: () => Navigator.pop(c, 'discard'),
             style: TextButton.styleFrom(foregroundColor: Colors.red),
-            child: const Text('DISCARD_LOCAL'),
+            child: const Text('Discard local'),
           ),
           TextButton(
             onPressed: () => Navigator.pop(c, 'overwrite'),
             style: TextButton.styleFrom(foregroundColor: Colors.orange),
-            child: const Text('OVERWRITE_REMOTE'),
+            child: const Text('Overwrite remote'),
           ),
           TextButton(
             onPressed: () => Navigator.pop(c, 'load_remote'),
-            child: const Text('LOAD_REMOTE_COPY'),
+            child: const Text('Load remote copy'),
           ),
         ],
       ),
     );
     return res ?? 'cancel';
+  }
+
+  String _formatTimestamp(int seconds) {
+    if (seconds <= 0) return 'Unknown';
+    final date = DateTime.fromMillisecondsSinceEpoch(seconds * 1000);
+    return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')} ${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
   }
 
   void _close() {

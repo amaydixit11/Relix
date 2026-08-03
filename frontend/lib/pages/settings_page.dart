@@ -17,8 +17,11 @@ class SettingsPage extends StatefulWidget {
 class _SettingsPageState extends State<SettingsPage> {
   late final TextEditingController _baseUrlController;
   late final TextEditingController _inviteController;
+  late final TextEditingController _vaultPathController;
   bool _pairing = false;
   bool _inviting = false;
+  bool _exporting = false;
+  bool _clearingCache = false;
 
   @override
   void initState() {
@@ -27,13 +30,27 @@ class _SettingsPageState extends State<SettingsPage> {
       text: widget.controller.snapshot.baseUrl,
     );
     _inviteController = TextEditingController();
+    _vaultPathController = TextEditingController(
+      text: 'Loading...',
+    );
+    _loadVaultPathDisplay();
   }
 
   @override
   void dispose() {
     _baseUrlController.dispose();
     _inviteController.dispose();
+    _vaultPathController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadVaultPathDisplay() async {
+    try {
+      final dir = await widget.controller.vault.vaultDir;
+      if (mounted) {
+        setState(() => _vaultPathController.text = dir.path);
+      }
+    } catch (_) {}
   }
 
   @override
@@ -47,7 +64,7 @@ class _SettingsPageState extends State<SettingsPage> {
         physics: const BouncingScrollPhysics(),
         slivers: [
           SliverPadding(
-            padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 40),
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
             sliver: SliverToBoxAdapter(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -123,6 +140,46 @@ class _SettingsPageState extends State<SettingsPage> {
                       onSubmitted: (v) async {
                         await widget.controller.setBaseUrl(v);
                       },
+                    ),
+                  ),
+
+                  const SizedBox(height: 32),
+
+                  // Local Vault Path
+                  _techSection(
+                    title: 'LOCAL VAULT',
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Notes are stored as .md files in your local vault. '
+                          'Changes are synced to ACORDE for P2P sharing.',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.white54,
+                            height: 1.5,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: _vaultPathController,
+                          style: const TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 11,
+                          ),
+                          decoration: InputDecoration(
+                            labelText: 'VAULT_DIRECTORY',
+                            hintText: '(default — app documents)',
+                            prefixIcon: const Icon(Icons.folder_rounded, size: 16),
+                            suffixIcon: IconButton(
+                              icon: const Icon(Icons.check_rounded, size: 18),
+                              onPressed: _setVaultPath,
+                              tooltip: 'SET_VAULT_PATH',
+                            ),
+                          ),
+                          onSubmitted: (v) => _setVaultPath(),
+                        ),
+                      ],
                     ),
                   ),
 
@@ -211,9 +268,11 @@ class _SettingsPageState extends State<SettingsPage> {
                       const SizedBox(width: 16),
                       _infoCard(
                         'LATENCY_MS',
-                        '42',
+                        snapshot.daemonReachable ? '<50' : '—',
                         Icons.speed_rounded,
-                        color: Colors.blueAccent,
+                        color: snapshot.daemonReachable
+                            ? Colors.blueAccent
+                            : Colors.white24,
                       ),
                       const SizedBox(width: 16),
                       _infoCard(
@@ -264,6 +323,40 @@ class _SettingsPageState extends State<SettingsPage> {
                       ),
                     ),
                   ],
+
+                  const SizedBox(height: 48),
+
+                  // Data Management Section
+                  _techSection(
+                    title: 'DATA MANAGEMENT',
+                    child: Column(
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _dataActionCard(
+                                'EXPORT_ALL_NOTES',
+                                'Download all notes as ZIP',
+                                Icons.file_download_rounded,
+                                _exporting,
+                                _exportAll,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: _dataActionCard(
+                                'FORCE_SYNC',
+                                'Refresh from daemon',
+                                Icons.sync_rounded,
+                                _clearingCache,
+                                _forceSync,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -530,6 +623,134 @@ class _SettingsPageState extends State<SettingsPage> {
         ),
       ],
     );
+  }
+
+  Widget _dataActionCard(
+    String title,
+    String subtitle,
+    IconData icon,
+    bool loading,
+    VoidCallback onTap,
+  ) {
+    return InkWell(
+      onTap: loading ? null : onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: const Color(0xFF0B1220),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: const Color(0xFF1F1F1F)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  icon,
+                  size: 18,
+                  color: loading
+                      ? Colors.white10
+                      : Theme.of(context).colorScheme.primary,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+                if (loading)
+                  const SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white24,
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              subtitle,
+              style: const TextStyle(
+                fontSize: 10,
+                color: Colors.white38,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _exportAll() async {
+    setState(() => _exporting = true);
+    try {
+      final notes = widget.controller.snapshot.notes
+          .where((e) => e.type == 'note')
+          .toList();
+      if (notes.isEmpty) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('NO_NOTES_TO_EXPORT')),
+        );
+        return;
+      }
+      await widget.controller.export.shareAll(notes);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('EXPORT_COMPLETE')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('EXPORT_FAILED: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _exporting = false);
+    }
+  }
+
+  Future<void> _forceSync() async {
+    setState(() => _clearingCache = true);
+    try {
+      await widget.controller.refresh();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('SYNC_COMPLETE')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('SYNC_FAILED: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _clearingCache = false);
+    }
+  }
+
+  Future<void> _setVaultPath() async {
+    final path = _vaultPathController.text.trim();
+    if (path.isEmpty || path.startsWith('(')) return;
+    try {
+      await widget.controller.setVaultPath(path);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('VAULT_PATH_SET — refreshing...')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('VAULT_PATH_ERROR: $e')),
+      );
+    }
   }
 }
 

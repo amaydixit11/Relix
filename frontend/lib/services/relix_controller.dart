@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 
@@ -8,32 +7,34 @@ import 'acorde_client.dart';
 import 'export_service.dart';
 import 'file_service.dart';
 import 'graph_service.dart';
-import 'local_store.dart';
 import 'note_service.dart';
+import 'vault_store.dart';
 
 class RelixController extends ChangeNotifier {
-  RelixController({AcordeClient? client, LocalStore? store})
-    : _client = client ?? AcordeClient(),
-      _store = store ?? LocalStore() {
-    _graph = GraphService(_client);
+  RelixController({
+    AcordeClient? client,
+    VaultStore? store,
+  })  : _client = client ?? AcordeClient(),
+        _vault = store ?? VaultStore() {
+    _note = NoteService(_vault, _client);
+    _graph = GraphService(_vault);
     _export = ExportService();
     _file = FileService(_client);
-    _note = NoteService(_client);
   }
 
   final AcordeClient _client;
-  final LocalStore _store;
-  final Random _random = Random();
+  final VaultStore _vault;
 
+  late final NoteService _note;
   late final GraphService _graph;
   late final ExportService _export;
   late final FileService _file;
-  late final NoteService _note;
 
   GraphService get graph => _graph;
   ExportService get export => _export;
   FileService get file => _file;
   NoteService get note => _note;
+  VaultStore get vault => _vault;
 
   SyncSnapshot _snapshot = const SyncSnapshot();
   SyncSnapshot get snapshot => _snapshot;
@@ -44,10 +45,10 @@ class RelixController extends ChangeNotifier {
   Future<void> _queueWrite = Future.value();
 
   Future<void> initialize() async {
-    final baseUrl = await _store.readBaseUrl() ?? 'http://localhost:7331';
-    final notes = await _store.readNotes();
-    final peers = await _store.readPeers();
-    final stuck = await _store.readStuckMutations();
+    final baseUrl = await _vault.readBaseUrl() ?? 'http://localhost:7331';
+    final notes = await _vault.readAll();
+    final peers = await _vault.readPeers();
+    final stuck = await _vault.readStuckMutations();
     _client.setBaseUrl(baseUrl);
     _snapshot = _snapshot.copyWith(
       baseUrl: baseUrl,
@@ -75,9 +76,14 @@ class RelixController extends ChangeNotifier {
   Future<void> setBaseUrl(String value) async {
     final trimmed = value.trim();
     _client.setBaseUrl(trimmed);
-    await _store.writeBaseUrl(trimmed);
+    await _vault.writeBaseUrl(trimmed);
     _snapshot = _snapshot.copyWith(baseUrl: trimmed, errorMessage: null);
     notifyListeners();
+    await refresh();
+  }
+
+  Future<void> setVaultPath(String path) async {
+    await _vault.setVaultPath(path);
     await refresh();
   }
 
@@ -86,19 +92,31 @@ class RelixController extends ChangeNotifier {
     _refreshing = true;
     try {
       final healthy = await _client.healthCheck();
+
+      // Always read from local vault (source of truth)
+      final localNotes = await _vault.readAll();
+
       if (!healthy) {
-        final queue = await _store.readQueue();
-        final stuck = await _store.readStuckMutations();
-        _snapshot = _snapshot.copyWith(
-          daemonReachable: false,
-          pendingChanges: queue.length,
-          stuckMutations: stuck.length,
-          errorMessage: null,
-        );
-        notifyListeners();
+        final queue = await _vault.readQueue();
+        final stuck = await _vault.readStuckMutations();
+        final needsUpdate = !_snapshot.daemonReachable ||
+            _snapshot.pendingChanges != queue.length ||
+            _snapshot.stuckMutations != stuck.length ||
+            _snapshot.notes.length != localNotes.length;
+        if (needsUpdate) {
+          _snapshot = _snapshot.copyWith(
+            daemonReachable: false,
+            notes: localNotes,
+            pendingChanges: queue.length,
+            stuckMutations: stuck.length,
+            errorMessage: null,
+          );
+          notifyListeners();
+        }
         return;
       }
 
+      // Daemon is reachable — sync bidirectional
       final results = await Future.wait<Object?>([
         _client
             .getIdentity()
@@ -114,18 +132,27 @@ class RelixController extends ChangeNotifier {
       final status = results[2] as Map<String, dynamic>;
       final remoteNotes = results[3] as List<NoteEntry>?;
 
-      final mergedPeers = await _mergePeers(
-        incomingPeers,
-        status['last_sync'] as int?,
-      );
-      final queue = await _store.readQueue();
-      final cachedNotes = await _store.readNotes();
-      final mergedNotes = _mergeRemoteNotes(remoteNotes ?? cachedNotes, queue);
-      await _store.writeNotes(mergedNotes);
+      // Merge remote ACORDE notes into local vault
+      if (remoteNotes != null && remoteNotes.isNotEmpty) {
+        for (final remote in remoteNotes) {
+          if (remote.deleted) continue;
+          // Only merge if remote is newer
+          final local = await _vault.getNote(remote.id);
+          if (local == null || remote.updatedAt > local.updatedAt) {
+            await _vault.write(remote);
+          }
+        }
+      }
+
+      // Re-read merged vault state
+      final mergedPeers = await _mergePeers(incomingPeers, status['last_sync'] as int?);
+
+      // Drain mutation queue (push local changes to ACORDE)
       await _drainQueue();
-      final stuck = await _store.readStuckMutations();
-      final pending = await _store.readQueue();
-      final settledNotes = await _store.readNotes();
+
+      final pending = await _vault.readQueue();
+      final settledNotes = await _vault.readAll();
+      final finalStuck = await _vault.readStuckMutations();
 
       _snapshot = _snapshot.copyWith(
         identity: identity,
@@ -133,13 +160,18 @@ class RelixController extends ChangeNotifier {
         notes: settledNotes,
         daemonReachable: true,
         pendingChanges: pending.length,
-        stuckMutations: stuck.length,
+        stuckMutations: finalStuck.length,
         lastSyncAt: status['last_sync'] as int?,
         errorMessage: null,
       );
       notifyListeners();
     } catch (error) {
-      _snapshot = _snapshot.copyWith(errorMessage: error.toString());
+      // On error, still show local vault
+      final localNotes = await _vault.readAll();
+      _snapshot = _snapshot.copyWith(
+        notes: localNotes,
+        errorMessage: error.toString(),
+      );
       notifyListeners();
     } finally {
       _refreshing = false;
@@ -156,7 +188,7 @@ class RelixController extends ChangeNotifier {
               : peer,
         )
         .toList();
-    await _store.writePeers(peers);
+    await _vault.writePeers(peers);
     _snapshot = _snapshot.copyWith(peers: peers);
     notifyListeners();
   }
@@ -174,7 +206,7 @@ class RelixController extends ChangeNotifier {
   }
 
   Future<void> clearStuckMutations() async {
-    await _store.clearStuckMutations();
+    await _vault.clearStuckMutations();
     _snapshot = _snapshot.copyWith(stuckMutations: 0);
     notifyListeners();
   }
@@ -184,40 +216,15 @@ class RelixController extends ChangeNotifier {
     required String body,
     required List<String> tags,
   }) async {
-    final createdAt = _unixNow();
-    final tempId = 'local-$createdAt-${_random.nextInt(100000)}';
+    final note = await _note.create(title: title, body: body, tags: tags);
 
-    // We can't resolve IDs offline easily without a full cache,
-    // but we can add the outlink tags if they look like IDs or we just wait for the daemon.
-
-    final optimistic = NoteEntry(
-      id: tempId,
-      type: 'note',
-      content: NoteContent(title: title, body: body),
-      tags: tags,
-      createdAt: createdAt,
-      updatedAt: createdAt,
-      deleted: false,
-      owner: '',
-      pendingSync: true,
-    );
-
-    final notes = [optimistic, ..._snapshot.notes];
-    await _store.writeNotes(notes);
-    await _enqueueMutation(
-      MutationPayload(
-        type: 'create',
-        noteId: tempId,
-        title: title,
-        body: body,
-        tags: tags,
-        createdAt: createdAt,
-      ),
-    );
+    // Update snapshot optimistically
+    final notes = await _vault.readAll();
     _snapshot = _snapshot.copyWith(notes: notes);
     notifyListeners();
+
     unawaited(refresh());
-    return optimistic;
+    return note;
   }
 
   Future<void> updateNote({
@@ -226,32 +233,12 @@ class RelixController extends ChangeNotifier {
     required String body,
     required List<String> tags,
   }) async {
-    final notes = _snapshot.notes
-        .map(
-          (note) => note.id == id
-              ? note.copyWith(
-                  content: NoteContent(title: title, body: body),
-                  tags: tags,
-                  updatedAt: _unixNow(),
-                  baselineUpdatedAt:
-                      note.baselineUpdatedAt ?? note.updatedAt,
-                  pendingSync: true,
-                )
-              : note,
-        )
-        .toList();
-    await _store.writeNotes(notes);
-    await _enqueueMutation(
-      MutationPayload(
-        type: 'update',
-        noteId: id,
-        title: title,
-        body: body,
-        tags: tags,
-      ),
-    );
+    await _note.update(id: id, title: title, body: body, tags: tags);
+
+    final notes = await _vault.readAll();
     _snapshot = _snapshot.copyWith(notes: notes);
     notifyListeners();
+
     unawaited(refresh());
   }
 
@@ -276,48 +263,38 @@ class RelixController extends ChangeNotifier {
   }
 
   Future<void> deleteNote(String id) async {
-    final notes = _snapshot.notes.where((note) => note.id != id).toList();
-    await _store.writeNotes(notes);
+    // Delete from local vault
+    await _note.delete(id);
+
+    // Queue for ACORDE deletion
     await _enqueueMutation(MutationPayload(type: 'delete', noteId: id));
+
+    final notes = await _vault.readAll();
     _snapshot = _snapshot.copyWith(notes: notes);
     notifyListeners();
+
     unawaited(refresh());
   }
 
   Future<NoteEntry?> fetchLatestRemoteNote(String id) async {
-    try {
-      final latest = await _client.getNote(id);
-      return latest.copyWith(baselineUpdatedAt: latest.updatedAt);
-    } catch (_) {
-      return null;
-    }
+    return _note.fetchFromAcorde(id);
   }
 
   Future<void> applyRemoteNote(NoteEntry remote) async {
     await _withQueueWriteLock(() async {
-      final queue = await _store.readQueue();
+      final queue = await _vault.readQueue();
       final filteredQueue = queue
           .where((mutation) => mutation.noteId != remote.id)
           .toList();
-      await _store.writeQueue(filteredQueue);
+      await _vault.writeQueue(filteredQueue);
     });
 
-    final notes = _snapshot.notes
-        .map(
-          (note) => note.id == remote.id
-              ? remote.copyWith(
-                  pendingSync: false,
-                  baselineUpdatedAt: remote.updatedAt,
-                )
-              : note,
-        )
-        .toList()
-      ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    await _note.mergeRemote(remote);
 
-    await _store.writeNotes(notes);
+    final notes = await _vault.readAll();
     _snapshot = _snapshot.copyWith(
       notes: notes,
-      pendingChanges: (await _store.readQueue()).length,
+      pendingChanges: (await _vault.readQueue()).length,
       errorMessage: null,
     );
     notifyListeners();
@@ -325,9 +302,9 @@ class RelixController extends ChangeNotifier {
 
   Future<void> _enqueueMutation(MutationPayload mutation) async {
     await _withQueueWriteLock(() async {
-      final queue = await _store.readQueue();
+      final queue = await _vault.readQueue();
       queue.add(mutation);
-      await _store.writeQueue(queue);
+      await _vault.writeQueue(queue);
       _snapshot = _snapshot.copyWith(pendingChanges: queue.length);
     });
   }
@@ -337,58 +314,54 @@ class RelixController extends ChangeNotifier {
     _draining = true;
     try {
       await _withQueueWriteLock(() async {
-        final queue = await _store.readQueue();
+        final queue = await _vault.readQueue();
         if (queue.isEmpty) {
           _snapshot = _snapshot.copyWith(pendingChanges: 0);
           return;
         }
 
         final remaining = <MutationPayload>[];
-        final stuck = await _store.readStuckMutations();
-        var notes = await _store.readNotes();
+        final stuck = await _vault.readStuckMutations();
 
         for (var index = 0; index < queue.length; index++) {
           final mutation = queue[index];
           try {
-            if (mutation.type == 'create') {
-              final created = await _note.create(
-                mutation.title ?? 'Untitled',
-                mutation.body ?? '',
-                tags: mutation.tags,
-              );
-              final normalized = created.copyWith(
-                baselineUpdatedAt: created.updatedAt,
-              );
-              notes = notes
-                  .map((note) => note.id == mutation.noteId ? normalized : note)
-                  .toList();
-              _rewriteQueuedNoteId(
-                queue,
-                oldId: mutation.noteId,
-                newId: created.id,
-                startIndex: index + 1,
-              );
-              _rewriteQueuedNoteId(
-                remaining,
-                oldId: mutation.noteId,
-                newId: created.id,
-              );
-            } else if (mutation.type == 'update') {
-              final updated = await _note.update(
-                mutation.noteId,
-                title: mutation.title,
-                body: mutation.body,
-                tags: mutation.tags,
-              );
-              final normalized = updated.copyWith(
-                baselineUpdatedAt: updated.updatedAt,
-              );
-              notes = notes
-                  .map((note) => note.id == mutation.noteId ? normalized : note)
-                  .toList();
+            if (mutation.type == 'create' || mutation.type == 'update') {
+              // Push local note to ACORDE
+              final note = await _vault.getNote(mutation.noteId);
+              if (note != null && note.content is NoteContent) {
+                final pushed = await _note.pushToAcorde(note);
+
+                // If it was a create with a temp ID, update the local file with the real ACORDE ID
+                if (mutation.type == 'create' && mutation.noteId.startsWith('local-')) {
+                  // Delete old local file, write new one with real ID
+                  await _vault.delete(mutation.noteId);
+                  final normalized = pushed.copyWith(
+                    baselineUpdatedAt: pushed.updatedAt,
+                    pendingSync: false,
+                  );
+                  await _vault.write(normalized);
+
+                  // Rewrite queued note IDs that referenced the temp ID
+                  _rewriteQueuedNoteId(
+                    queue,
+                    oldId: mutation.noteId,
+                    newId: pushed.id,
+                    startIndex: index + 1,
+                  );
+                  _rewriteQueuedNoteId(
+                    remaining,
+                    oldId: mutation.noteId,
+                    newId: pushed.id,
+                  );
+                } else {
+                  // Update was successful, mark as synced
+                  final synced = note.copyWith(pendingSync: false);
+                  await _vault.write(synced);
+                }
+              }
             } else if (mutation.type == 'delete') {
-              await _client.deleteNote(mutation.noteId);
-              notes = notes.where((note) => note.id != mutation.noteId).toList();
+              await _note.deleteOnAcorde(mutation.noteId);
             }
           } catch (_) {
             final retried = mutation.copyWith(
@@ -402,14 +375,24 @@ class RelixController extends ChangeNotifier {
           }
         }
 
-        notes = notes.map((note) {
-          final pending = remaining.any((mutation) => mutation.noteId == note.id);
-          return note.copyWith(pendingSync: pending);
-        }).toList();
+        // Only update pending_sync flags for affected notes
+        final pendingIds = remaining.map((m) => m.noteId).toSet();
+        final notes = await _vault.readAll();
+        final changedNotes = <NoteEntry>[];
+        for (final note in notes) {
+          if (pendingIds.contains(note.id) || note.pendingSync) {
+            changedNotes.add(note.copyWith(pendingSync: pendingIds.contains(note.id)));
+          }
+        }
 
-        await _store.writeQueue(remaining);
-        await _store.writeStuckMutations(stuck);
-        await _store.writeNotes(notes);
+        // Write only changed notes back
+        for (final n in changedNotes) {
+          await _vault.write(n);
+        }
+
+        await _vault.writeQueue(remaining);
+        await _vault.writeStuckMutations(stuck);
+
         _snapshot = _snapshot.copyWith(
           notes: notes,
           pendingChanges: remaining.length,
@@ -419,58 +402,6 @@ class RelixController extends ChangeNotifier {
     } finally {
       _draining = false;
     }
-  }
-
-  List<NoteEntry> _mergeRemoteNotes(
-    List<NoteEntry> remoteNotes,
-    List<MutationPayload> queue,
-  ) {
-    final remoteById = {for (final note in remoteNotes) note.id: note};
-
-    for (final mutation in queue) {
-      if (mutation.type == 'create') {
-        remoteById[mutation.noteId] = NoteEntry(
-          id: mutation.noteId,
-          type: 'note',
-          content: NoteContent(
-            title: mutation.title ?? 'Untitled',
-            body: mutation.body ?? '',
-          ),
-          tags: mutation.tags,
-          createdAt: mutation.createdAt ?? _unixNow(),
-          updatedAt: mutation.createdAt ?? _unixNow(),
-          baselineUpdatedAt: null,
-          deleted: false,
-          owner: '',
-          pendingSync: true,
-        );
-      } else if (mutation.type == 'update') {
-        final existing = remoteById[mutation.noteId];
-        if (existing != null && existing.content is NoteContent) {
-          remoteById[mutation.noteId] = existing.copyWith(
-            content: NoteContent(
-              title: mutation.title ?? (existing.content as NoteContent).title,
-              body: mutation.body ?? (existing.content as NoteContent).body,
-            ),
-            tags: mutation.tags,
-            baselineUpdatedAt: existing.baselineUpdatedAt ?? existing.updatedAt,
-            pendingSync: true,
-          );
-        }
-      } else if (mutation.type == 'delete') {
-        remoteById.remove(mutation.noteId);
-      }
-    }
-
-    final notes = remoteById.values.toList()
-      ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
-    return notes;
-  }
-
-  Future<void> _withQueueWriteLock(Future<void> Function() operation) {
-    final next = _queueWrite.then((_) => operation());
-    _queueWrite = next.catchError((_) {});
-    return next;
   }
 
   void _rewriteQueuedNoteId(
@@ -491,10 +422,10 @@ class RelixController extends ChangeNotifier {
     List<RemotePeer> incoming,
     int? lastSyncAt,
   ) async {
-    final stored = await _store.readPeers();
+    final stored = await _vault.readPeers();
     final storedById = {for (final peer in stored) peer.id: peer};
     final merged = <RemotePeer>[];
-    final now = _unixNow();
+    final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
 
     for (final peer in incoming) {
       final previous = storedById[peer.id];
@@ -513,9 +444,13 @@ class RelixController extends ChangeNotifier {
       merged.add(storedPeer);
     }
 
-    await _store.writePeers(merged);
+    await _vault.writePeers(merged);
     return merged;
   }
 
-  int _unixNow() => DateTime.now().millisecondsSinceEpoch ~/ 1000;
+  Future<void> _withQueueWriteLock(Future<void> Function() operation) {
+    final next = _queueWrite.then((_) => operation());
+    _queueWrite = next.catchError((_) {});
+    return next;
+  }
 }

@@ -9,7 +9,7 @@ class ConnectionBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final online = snapshot.daemonReachable;
-    final color = online ? Colors.greenAccent : Colors.redAccent;
+    final color = online ? const Color(0xFF2DD4BF) : const Color(0xFFf43f5e);
     final message = online
         ? snapshot.pendingChanges > 0
               ? 'Connected • ${snapshot.pendingChanges} changes pending sync'

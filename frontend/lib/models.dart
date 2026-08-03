@@ -180,7 +180,7 @@ class NoteEntry {
     'baseline_updated_at': baselineUpdatedAt,
     'deleted': deleted,
     'owner': owner,
-    'pending_sync': pendingSync,
+    // pending_sync is local-only — never sent to ACORDE
   };
 
   factory NoteEntry.fromJson(Map<String, dynamic> json) {
@@ -215,7 +215,8 @@ class NoteEntry {
       baselineUpdatedAt: json['baseline_updated_at'] as int?,
       deleted: (json['deleted'] ?? false) as bool,
       owner: (json['owner'] ?? '') as String,
-      pendingSync: (json['pending_sync'] ?? false) as bool,
+      // pending_sync is local-only, not from ACORDE
+      pendingSync: false,
     );
   }
 

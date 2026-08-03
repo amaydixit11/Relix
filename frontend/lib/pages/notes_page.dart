@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import '../models.dart';
 import '../services/relix_controller.dart';
@@ -16,10 +18,18 @@ class NotesPage extends StatefulWidget {
 
 class _NotesPageState extends State<NotesPage> {
   String _searchQuery = '';
+  bool _exporting = false;
+  List<NoteEntry>? _cachedNotes;
+  String? _lastSnapshotId;
+  Timer? _debounceTimer;
 
-  @override
-  Widget build(BuildContext context) {
+  List<NoteEntry> _getFilteredNotes() {
     final snapshot = widget.controller.snapshot;
+    final cacheKey = '${_searchQuery}_${snapshot.notes.length}_${snapshot.lastSyncAt ?? 0}';
+    if (cacheKey == _lastSnapshotId && _cachedNotes != null) {
+      return _cachedNotes!;
+    }
+
     final notes = snapshot.notes.where((e) => e.type == 'note').where((e) {
       if (_searchQuery.isEmpty) return true;
       final content = e.content as NoteContent;
@@ -28,6 +38,22 @@ class _NotesPageState extends State<NotesPage> {
           content.body.toLowerCase().contains(q) ||
           e.tags.any((t) => t.toLowerCase().contains(q));
     }).toList();
+
+    _cachedNotes = notes;
+    _lastSnapshotId = cacheKey;
+    return notes;
+  }
+
+  @override
+  void dispose() {
+    _debounceTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final snapshot = widget.controller.snapshot;
+    final notes = _getFilteredNotes();
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -40,7 +66,7 @@ class _NotesPageState extends State<NotesPage> {
           physics: const BouncingScrollPhysics(),
           slivers: [
             SliverPadding(
-              padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 40),
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
               sliver: SliverToBoxAdapter(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -73,12 +99,35 @@ class _NotesPageState extends State<NotesPage> {
                     ),
                     const SizedBox(height: 32),
                     _buildSearchBar(context),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        const Spacer(),
+                        OutlinedButton.icon(
+                          onPressed: _exporting ? null : _exportAll,
+                          icon: Icon(
+                            _exporting
+                                ? Icons.hourglass_top_rounded
+                                : Icons.file_download_rounded,
+                            size: 16,
+                          ),
+                          label: Text(_exporting ? 'EXPORTING...' : 'EXPORT'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: const Color(0xFF7B88FF),
+                            side: const BorderSide(
+                              color: Color(0xFF7B88FF),
+                              width: 0.5,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ],
                 ),
               ),
             ),
             SliverPadding(
-              padding: const EdgeInsets.symmetric(horizontal: 48),
+              padding: const EdgeInsets.symmetric(horizontal: 24),
               sliver: notes.isEmpty
                   ? SliverFillRemaining(
                       hasScrollBody: false,
@@ -147,7 +196,12 @@ class _NotesPageState extends State<NotesPage> {
         border: Border.all(color: const Color(0xFF1F1F1F)),
       ),
       child: TextField(
-        onChanged: (v) => setState(() => _searchQuery = v),
+        onChanged: (v) {
+          _debounceTimer?.cancel();
+          _debounceTimer = Timer(const Duration(milliseconds: 150), () {
+            if (mounted) setState(() => _searchQuery = v);
+          });
+        },
         style: const TextStyle(fontSize: 13),
         decoration: InputDecoration(
           hintText: 'RECALL_SEQUENCES...',
@@ -159,7 +213,7 @@ class _NotesPageState extends State<NotesPage> {
           prefixIcon: Icon(
             Icons.search_rounded,
             size: 18,
-            color: Colors.white.withOpacity(0.1),
+            color: Colors.white.withValues(alpha: 0.1),
           ),
           border: InputBorder.none,
           enabledBorder: InputBorder.none,
@@ -180,5 +234,29 @@ class _NotesPageState extends State<NotesPage> {
     if (diff.inHours < 1) return '${diff.inMinutes}m ago';
     if (diff.inDays < 1) return '${diff.inHours}h ago';
     return '${date.day}/${date.month}';
+  }
+
+  Future<void> _exportAll() async {
+    setState(() => _exporting = true);
+    try {
+      final notes = widget.controller.snapshot.notes
+          .where((e) => e.type == 'note')
+          .toList();
+      if (notes.isEmpty) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('NO_NOTES_TO_EXPORT')),
+        );
+        return;
+      }
+      await widget.controller.export.shareAll(notes);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('EXPORT_FAILED: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _exporting = false);
+    }
   }
 }

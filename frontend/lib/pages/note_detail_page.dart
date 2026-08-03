@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'package:flutter/material.dart';
 import '../models.dart';
 import '../services/relix_controller.dart';
@@ -236,7 +237,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
           style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
         ),
         content: SizedBox(
-          width: 720,
+          width: min(720, MediaQuery.of(context).size.width * 0.85),
           child: SingleChildScrollView(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,

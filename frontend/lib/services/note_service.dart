@@ -1,123 +1,185 @@
 import '../models.dart';
 import 'acorde_client.dart';
+import 'vault_store.dart';
+import 'wikilink_parser.dart';
 
+/// NoteService operates on the local vault as the primary source of truth.
+/// ACORDE is used for P2P sync (mirror), not as the storage backend.
 class NoteService {
-  NoteService(this.client);
+  NoteService(this.vault, this.client);
 
+  final VaultStore vault;
   final AcordeClient client;
+  final wikilinks = WikilinkParser();
 
-  List<String> extractWikilinks(String body) {
-    final RegExp regex = RegExp(r'\[\[(.*?)\]\]');
-    return regex.allMatches(body).map((match) => match.group(1)!).toList();
-  }
+  // ── Local CRUD (vault-first) ───────────────────────────────────
 
-  Future<List<String>> resolveTitlesToIds(List<String> identifiers) async {
-    final allEntries = await client.listNotes();
-    final allNotes = allEntries.where((e) => e.type == 'note').toList();
-    final resolved = <String>{};
+  Future<List<NoteEntry>> listNotes() async => vault.readAll();
 
-    final uuidRegex = RegExp(
-      r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
-      caseSensitive: false,
-    );
+  Future<NoteEntry?> getNote(String id) async => vault.getNote(id);
 
-    for (final iden in identifiers) {
-      if (uuidRegex.hasMatch(iden)) {
-        resolved.add(iden);
-        continue;
-      }
-
-      final actualMatch = allNotes.any(
-        (n) =>
-            (n.content as NoteContent).title.toLowerCase() ==
-            iden.toLowerCase(),
-      );
-
-      if (actualMatch) {
-        final note = allNotes.firstWhere(
-          (n) =>
-              (n.content as NoteContent).title.toLowerCase() ==
-              iden.toLowerCase(),
-        );
-        resolved.add(note.id);
-      }
-    }
-
-    return resolved.toList();
-  }
-
-  Future<NoteEntry> create(
-    String title,
-    String body, {
+  Future<NoteEntry> create({
+    required String title,
+    required String body,
     List<String> tags = const [],
   }) async {
-    final wikilinkTitles = extractWikilinks(body);
-    final resolvedIds = await resolveTitlesToIds(wikilinkTitles);
+    final allNotes = await listNotes();
+    final outlinkTags = wikilinks.buildOutlinkTags(body, allNotes);
 
     final allTags = <String>{
       ...tags,
-      ...resolvedIds.map((id) => 'outlink:$id'),
+      ...outlinkTags,
     };
 
-    return await client.createNote(
-      title: title,
-      body: body,
+    final createdAt = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    final tempId = 'local-${DateTime.now().millisecondsSinceEpoch}-${(DateTime.now().microsecondsSinceEpoch % 100000)}';
+
+    final note = NoteEntry(
+      id: tempId,
+      type: 'note',
+      content: NoteContent(title: title, body: body),
       tags: allTags.toList(),
+      createdAt: createdAt,
+      updatedAt: createdAt,
+      deleted: false,
+      owner: '',
+      pendingSync: true,
     );
+
+    await vault.write(note);
+    return note;
   }
 
-  Future<NoteEntry> update(
-    String id, {
-    String? title,
-    String? body,
+  Future<NoteEntry> update({
+    required String id,
+    required String title,
+    required String body,
     List<String>? tags,
   }) async {
-    final existing = await client.getNote(id);
-    final existingNote = existing.content as NoteContent;
+    final existing = await vault.getNote(id);
+    if (existing == null) {
+      throw Exception('Note not found: $id');
+    }
 
-    final newTitle = title ?? existingNote.title;
-    final newBody = body ?? existingNote.body;
+    final allNotes = await listNotes();
+    final userTags = tags ?? existing.tags.where((t) => !t.startsWith('outlink:')).toList();
+    final outlinkTags = wikilinks.buildOutlinkTags(body, allNotes);
 
-    final newWikilinks = extractWikilinks(newBody);
-    final resolvedIds = await resolveTitlesToIds(newWikilinks);
-
-    final finalTags = <String>{
-      ...(tags ?? existing.tags.where((t) => !t.startsWith('outlink:'))),
-      ...resolvedIds.map((id) => 'outlink:$id'),
+    final allTags = <String>{
+      ...userTags,
+      ...outlinkTags,
     };
 
-    return await client.updateNote(
-      id: id,
-      title: newTitle,
-      body: newBody,
-      tags: finalTags.toList(),
+    final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    final updated = existing.copyWith(
+      content: NoteContent(title: title, body: body),
+      tags: allTags.toList(),
+      updatedAt: now,
+      baselineUpdatedAt: existing.baselineUpdatedAt ?? existing.updatedAt,
+      pendingSync: true,
     );
+
+    await vault.write(updated);
+    return updated;
   }
+
+  Future<void> delete(String id) async {
+    await vault.delete(id);
+  }
+
+  // ── Wikilinks & Backlinks ──────────────────────────────────────
+
+  List<String> extractWikilinks(String body) => wikilinks.extractWikilinks(body);
 
   Future<List<NoteEntry>> getBacklinks(String id) async {
-    return await client.listEntries(type: 'note', tag: 'outlink:$id');
-  }
-
-  Future<List<NoteEntry>> search(String query, {String? type}) async {
-    return await client.searchEntries(query, type: type);
+    final allNotes = await listNotes();
+    return wikilinks.findBacklinks(id, allNotes);
   }
 
   Future<List<NoteEntry>> getOutlinks(String id) async {
-    final entry = await client.getNote(id);
-    final outlinkIds = entry.tags
-        .where((tag) => tag.startsWith('outlink:'))
-        .map((tag) => tag.replaceFirst('outlink:', ''));
+    final allNotes = await listNotes();
+    return wikilinks.findOutlinks(id, allNotes);
+  }
 
-    final targets = await Future.wait(
-      outlinkIds.map((targetId) async {
-        try {
-          return await client.getNote(targetId);
-        } catch (_) {
-          return null;
-        }
-      }),
-    );
+  Future<List<String>> resolveTitlesToIds(List<String> identifiers) async {
+    final allNotes = await listNotes();
+    return wikilinks.resolveToIds(identifiers, allNotes);
+  }
 
-    return targets.whereType<NoteEntry>().toList();
+  // ── Search (local) ─────────────────────────────────────────────
+
+  Future<List<NoteEntry>> search(String query, {String? type}) async {
+    final allNotes = await listNotes();
+    final lower = query.trim().toLowerCase();
+    if (lower.isEmpty) return allNotes.where((n) => type == null || n.type == type).toList();
+
+    return allNotes.where((entry) {
+      if (type != null && entry.type != type) return false;
+      final content = entry.content;
+      if (content is NoteContent) {
+        return content.title.toLowerCase().contains(lower) ||
+            content.body.toLowerCase().contains(lower);
+      }
+      return entry.tags.any((t) => t.toLowerCase().contains(lower));
+    }).toList();
+  }
+
+  // ── ACORDE Sync (mirror local ↔ remote) ────────────────────────
+
+  /// Push a local note to ACORDE. Used by the mutation queue drain.
+  Future<NoteEntry> pushToAcorde(NoteEntry note) async {
+    final noteContent = note.content as NoteContent;
+
+    if (note.id.startsWith('local-')) {
+      // New note — create on ACORDE
+      final created = await client.createNote(
+        title: noteContent.title,
+        body: noteContent.body,
+        tags: note.tags,
+      );
+      return created;
+    } else {
+      // Existing note — update on ACORDE
+      return await client.updateNote(
+        id: note.id,
+        title: noteContent.title,
+        body: noteContent.body,
+        tags: note.tags,
+      );
+    }
+  }
+
+  /// Delete a note on ACORDE.
+  Future<void> deleteOnAcorde(String id) async {
+    await client.deleteNote(id);
+  }
+
+  /// Fetch a note from ACORDE for conflict detection / sync.
+  Future<NoteEntry?> fetchFromAcorde(String id) async {
+    try {
+      return await client.getNote(id);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Merge a remote note from ACORDE into the local vault.
+  Future<NoteEntry> mergeRemote(NoteEntry remote) async {
+    final local = await vault.getNote(remote.id);
+
+    if (local == null) {
+      // New remote note — write to vault
+      await vault.write(remote);
+      return remote;
+    }
+
+    // Conflict resolution: last-write-wins based on updated_at
+    if (remote.updatedAt > local.updatedAt) {
+      await vault.write(remote);
+      return remote;
+    }
+
+    // Local is newer or equal — keep local
+    return local;
   }
 }

@@ -46,7 +46,7 @@ void main() {
       ),
     );
 
-    expect(find.text('HELLO'), findsOneWidget);
+    expect(find.text('Hello'), findsOneWidget);
     expect(find.text('Body preview'), findsOneWidget);
     expect(find.text('TAG-A'), findsOneWidget);
   });

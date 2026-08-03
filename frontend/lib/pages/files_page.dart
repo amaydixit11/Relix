@@ -1,5 +1,7 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:open_filex/open_filex.dart';
 
 import '../models.dart';
 import '../services/relix_controller.dart';
@@ -16,6 +18,7 @@ class FilesPage extends StatefulWidget {
 class _FilesPageState extends State<FilesPage> {
   bool _uploading = false;
   String _query = '';
+  final Map<String, bool> _downloading = {};
 
   @override
   Widget build(BuildContext context) {
@@ -38,7 +41,7 @@ class _FilesPageState extends State<FilesPage> {
         physics: const BouncingScrollPhysics(),
         slivers: [
           SliverPadding(
-            padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 40),
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
             sliver: SliverToBoxAdapter(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -102,7 +105,7 @@ class _FilesPageState extends State<FilesPage> {
             ),
           ),
           SliverPadding(
-            padding: const EdgeInsets.symmetric(horizontal: 48),
+            padding: const EdgeInsets.symmetric(horizontal: 24),
             sliver: files.isEmpty
                 ? const SliverFillRemaining(
                     hasScrollBody: false,
@@ -121,11 +124,14 @@ class _FilesPageState extends State<FilesPage> {
                     delegate: SliverChildBuilderDelegate((context, index) {
                       final entry = files[index];
                       final file = entry.content as FileContent;
+                      final isDownloading = _downloading[file.cid] ?? false;
                       return _FileRow(
                         entry: entry,
                         file: file,
                         onShare: () => widget.controller.shareFile(entry),
                         onCopyCid: () => _copyCid(file.cid),
+                        onOpen: () => _openFile(entry, file),
+                        isDownloading: isDownloading,
                       );
                     }, childCount: files.length),
                   ),
@@ -165,6 +171,30 @@ class _FilesPageState extends State<FilesPage> {
       context,
     ).showSnackBar(const SnackBar(content: Text('CID_COPIED')));
   }
+
+  Future<void> _openFile(NoteEntry entry, FileContent file) async {
+    if (kIsWeb) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('File download not available on web — use desktop'),
+        ),
+      );
+      return;
+    }
+    setState(() => _downloading[file.cid] = true);
+    try {
+      final xFile = await widget.controller.file.downloadToTempFile(file);
+      if (!mounted) return;
+      await OpenFilex.open(xFile.path);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('OPEN_FAILED: $error')),
+      );
+    } finally {
+      if (mounted) setState(() => _downloading[file.cid] = false);
+    }
+  }
 }
 
 class _FileRow extends StatelessWidget {
@@ -173,12 +203,16 @@ class _FileRow extends StatelessWidget {
     required this.file,
     required this.onShare,
     required this.onCopyCid,
+    required this.onOpen,
+    this.isDownloading = false,
   });
 
   final NoteEntry entry;
   final FileContent file;
   final VoidCallback onShare;
   final VoidCallback onCopyCid;
+  final VoidCallback onOpen;
+  final bool isDownloading;
 
   @override
   Widget build(BuildContext context) {
@@ -206,13 +240,37 @@ class _FileRow extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 6),
-                Text(
-                  '${file.mimeType} • ${_formatBytes(file.size)} • CID ${file.cid}',
-                  style: const TextStyle(
-                    fontFamily: 'monospace',
-                    fontSize: 11,
-                    color: Colors.white24,
-                  ),
+                Row(
+                  children: [
+                    Text(
+                      file.mimeType,
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 11,
+                        color: Colors.white24,
+                      ),
+                    ),
+                    Text(
+                      ' • ${_formatBytes(file.size)} •',
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 11,
+                        color: Colors.white24,
+                      ),
+                    ),
+                    Flexible(
+                      child: Text(
+                        'CID ${file.cid}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontFamily: 'monospace',
+                          fontSize: 11,
+                          color: Colors.white24,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 6),
                 Text(
@@ -266,6 +324,20 @@ class _FileRow extends StatelessWidget {
             onPressed: onCopyCid,
             tooltip: 'COPY_CID',
             icon: const Icon(Icons.content_copy_rounded, color: Colors.white38),
+          ),
+          IconButton(
+            onPressed: onOpen,
+            tooltip: 'OPEN_FILE',
+            icon: isDownloading
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white60,
+                    ),
+                  )
+                : const Icon(Icons.folder_open_rounded, color: Colors.white60),
           ),
           IconButton(
             onPressed: onShare,

@@ -13,7 +13,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('PERSONAL VAULT'), findsOneWidget);
-    expect(find.text('Settings'), findsOneWidget);
+    expect(find.text('Search...'), findsOneWidget);
+    expect(find.text('Select a note or create a new one'), findsOneWidget);
   });
 }

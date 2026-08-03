@@ -2,19 +2,19 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import 'pages/home_page.dart';
-import 'services/local_store.dart';
 import 'services/relix_controller.dart';
+import 'services/vault_store.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  final store = LocalStore();
-  final controller = RelixController(store: store);
+  final vault = VaultStore();
+  final controller = RelixController(store: vault);
   await controller.initialize();
-  final onboardingComplete = await store.readOnboardingComplete();
+  final onboardingComplete = await vault.readOnboardingComplete();
   runApp(
     RelixApp(
       controller: controller,
-      store: store,
+      vault: vault,
       onboardingComplete: onboardingComplete,
     ),
   );
@@ -24,12 +24,12 @@ class RelixApp extends StatefulWidget {
   const RelixApp({
     super.key,
     required this.controller,
-    required this.store,
+    required this.vault,
     required this.onboardingComplete,
   });
 
   final RelixController controller;
-  final LocalStore store;
+  final VaultStore vault;
   final bool onboardingComplete;
 
   @override
@@ -44,7 +44,7 @@ class _RelixAppState extends State<RelixApp> {
     if (trimmed != null && trimmed.isNotEmpty) {
       await widget.controller.setBaseUrl(trimmed);
     }
-    await widget.store.writeOnboardingComplete(true);
+    await widget.vault.writeOnboardingComplete(true);
     if (mounted) {
       setState(() => _onboardingComplete = true);
     }
